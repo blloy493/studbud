@@ -2,7 +2,7 @@
 // Vercel serverless function. Deploy path: /api/breakdown
 // Requires env var OPENAI_API_KEY set in the Vercel project settings.
 // test line for git push for first redeploy
-// test for v2
+// test for v3
 
 export default async function handler(req, res) {
   // CORS: allow the extension to call this endpoint.
