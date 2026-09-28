@@ -43,14 +43,19 @@ export default async function handler(req, res) {
           {
             role: 'system',
             content:
-              'You break a student\'s task into 3-6 concrete, small, sequential subtasks. ' +
-              'Respond with ONLY a JSON array of strings, no prose, no markdown formatting. ' +
-              'Example: ["Open the lab report template", "Write the introduction paragraph", "List the materials used"]',
+              'You help a student get started on a task. Given their description, return a JSON object with two fields. ' +
+              '"title": a short label of 3-6 words in Title Case that names what the work is. ' +
+              'It is a noun phrase describing the task itself, not a restatement of the student\'s wording; leave out deadlines, filler and instructions. ' +
+              '"subtasks": an array of 3-6 concrete, small, sequential steps. ' +
+              'Respond with ONLY the JSON object, no prose, no markdown formatting. ' +
+              'Example for "finish my chem lab report on titration, due thursday": ' +
+              '{"title": "Titration Lab Report", "subtasks": ["Open the lab report template", "Write the introduction paragraph", "List the materials used"]}',
           },
           { role: 'user', content: task },
         ],
+        response_format: { type: 'json_object' }, // guarantees syntactically valid JSON (object, not array)
         temperature: 0.4,
-        max_tokens: 300,
+        max_tokens: 400,
       }),
     });
 
@@ -63,19 +68,23 @@ export default async function handler(req, res) {
     const data = await openaiRes.json();
     const raw = data.choices?.[0]?.message?.content?.trim();
 
-    let subtasks;
+    let parsed;
     try {
-      subtasks = JSON.parse(raw);
+      parsed = JSON.parse(raw);
     } catch {
       console.error('Failed to parse model output as JSON:', raw);
       return res.status(502).json({ error: 'Model returned unparsable output' });
     }
 
+    const subtasks = parsed && parsed.subtasks;
     if (!Array.isArray(subtasks)) {
-      return res.status(502).json({ error: 'Model output was not a JSON array' });
+      return res.status(502).json({ error: 'Model output missing a "subtasks" array' });
     }
 
-    return res.status(200).json({ subtasks });
+    // Title is optional: if it's missing or malformed the client falls back to the user's own text.
+    const title = typeof parsed.title === 'string' ? parsed.title.trim().slice(0, 60) : '';
+
+    return res.status(200).json({ title: title || undefined, subtasks });
   } catch (err) {
     console.error('Breakdown endpoint error:', err);
     return res.status(500).json({ error: 'Internal server error' });
