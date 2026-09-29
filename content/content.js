@@ -128,7 +128,7 @@ function buildAvatar() {
     <div id="studbud-avatar-xp"></div>
     <button id="studbud-avatar-toggle" title="Minimize">–</button>
   `;
-  document.body.appendChild(avatar);
+  document.documentElement.appendChild(avatar);
 
   document.getElementById('studbud-avatar-toggle').addEventListener('click', () => {
     state.avatarMinimized = !state.avatarMinimized;
@@ -155,7 +155,7 @@ function buildTaskWidget() {
       <div id="studbud-subtask-current"></div>
     </div>
   `;
-  document.body.appendChild(widget);
+  document.documentElement.appendChild(widget);
 
   document.getElementById('studbud-task-toggle').addEventListener('click', () => {
     state.taskWidgetMinimized = !state.taskWidgetMinimized;
