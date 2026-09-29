@@ -46,15 +46,22 @@ export default async function handler(req, res) {
               'You help a student get started on a task. Given their description, return a JSON object with two fields. ' +
               '"title": a short label of 3-6 words in Title Case that names what the work is. ' +
               'It is a noun phrase describing the task itself, not a restatement of the student\'s wording; leave out deadlines, filler and instructions. ' +
-              '"subtasks": an array of 3-6 concrete, small, sequential steps. ' +
+              '"subtasks": an array of 3-6 concrete, sequential steps for STARTING and MAKING PROGRESS on this specific task. ' +
+              'Ground every step only in what the student actually wrote. ' +
+              'Do not invent specifics they did not mention — no page counts, word counts, sources, formatting rules, section names, or software, unless the student stated them. ' +
+              'If the description is short or vague, keep steps general (e.g. "outline your main points") rather than filling in imagined detail. ' +
+              'Do not include generic study-habit filler (e.g. "find a quiet place to work", "gather your materials") unless the student\'s own wording points to it. ' +
+              'The first step should be the smallest possible action that removes the "where do I even start" barrier. ' +
               'Respond with ONLY the JSON object, no prose, no markdown formatting. ' +
               'Example for "finish my chem lab report on titration, due thursday": ' +
-              '{"title": "Titration Lab Report", "subtasks": ["Open the lab report template", "Write the introduction paragraph", "List the materials used"]}',
+              '{"title": "Titration Lab Report", "subtasks": ["Open the lab report template", "Write the introduction paragraph", "List the materials used"]}. ' +
+              'Example for "study for my history test": ' +
+              '{"title": "History Test Prep", "subtasks": ["Pick the topic you know least well", "Reread your notes on that topic", "Write 3 questions you think could be on the test", "Answer them without looking at your notes"]}',
           },
           { role: 'user', content: task },
         ],
         response_format: { type: 'json_object' }, // guarantees syntactically valid JSON (object, not array)
-        temperature: 0.4,
+        temperature: 0.2, // lower than before: favors grounded, literal steps over creative/inferred ones
         max_tokens: 400,
       }),
     });
