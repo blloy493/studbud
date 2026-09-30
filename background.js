@@ -3,22 +3,32 @@
 // content script never touches the API directly.
 
 const BREAKDOWN_ENDPOINT = 'https://studbud-two.vercel.app/api/breakdown';
+const INTEREST_ENDPOINT = 'https://studbud-two.vercel.app/api/interest';
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type !== 'BREAKDOWN_TASK') {
-    return false; // not for us, let other listeners handle it
+  if (message.type === 'BREAKDOWN_TASK') {
+    handleBreakdown(message.task)
+      .then(({ subtasks, title }) => sendResponse({ ok: true, subtasks, title }))
+      .catch((err) => {
+        console.error('Breakdown request failed:', err);
+        sendResponse({ ok: false, error: err.message });
+      });
+    return true; // async response
   }
 
-  handleBreakdown(message.task)
-    .then(({ subtasks, title }) => sendResponse({ ok: true, subtasks, title }))
-    .catch((err) => {
-      console.error('Breakdown request failed:', err);
-      sendResponse({ ok: false, error: err.message });
-    });
+  if (message.type === 'RECORD_INTEREST') {
+    handleRecordInterest(message.event)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        // Non-critical: interest tracking should never surface an error to the
+        // student or block the UI, so this is logged, not thrown further.
+        console.error('Interest tracking failed:', err);
+        sendResponse({ ok: false, error: err.message });
+      });
+    return true; // async response
+  }
 
-  // Required: tells Chrome the response is async, keeps the message
-  // channel open until sendResponse is actually called above.
-  return true;
+  return false; // not for us, let other listeners handle it
 });
 
 async function handleBreakdown(task) {
@@ -35,4 +45,21 @@ async function handleBreakdown(task) {
 
   const data = await res.json();
   return { subtasks: data.subtasks, title: data.title };
+}
+
+async function handleRecordInterest(event) {
+  if (!event || typeof event !== 'object') {
+    throw new Error('Missing interest event');
+  }
+
+  const res = await fetch(INTEREST_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(event),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed with status ${res.status}`);
+  }
 }
