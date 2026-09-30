@@ -118,6 +118,54 @@ function saveState() {
   chrome.storage.local.set({ [STATE_KEY]: state });
 }
 
+// ---------- Coming-soon feature interest tracking ----------
+// No backend endpoint exists yet (pending a Vercel KV / Supabase decision —
+// see the extension's planning notes), so this logs locally so nothing is
+// lost, and separately fires a message that background.js will pick up
+// once RECORD_INTEREST is implemented there. Until then the message is a
+// harmless no-op (background.js just doesn't have a listener for it).
+
+const ANON_ID_KEY = 'studbudAnonId';
+const INTEREST_LOG_KEY = 'studbudInterestLog';
+const INTEREST_LOG_MAX = 200; // cap so local storage doesn't grow unbounded
+
+function getAnonId() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([ANON_ID_KEY], (result) => {
+      if (result[ANON_ID_KEY]) {
+        resolve(result[ANON_ID_KEY]);
+        return;
+      }
+      const id = crypto.randomUUID();
+      chrome.storage.local.set({ [ANON_ID_KEY]: id }, () => resolve(id));
+    });
+  });
+}
+
+async function recordInterest(feature, integrations) {
+  const anonId = await getAnonId();
+  const event = {
+    anonId,
+    feature,               // 'parser' | 'injection_system'
+    integrations: integrations || [],
+    timestamp: Date.now(),
+  };
+
+  chrome.storage.local.get([INTEREST_LOG_KEY], (result) => {
+    const log = result[INTEREST_LOG_KEY] || [];
+    log.push(event);
+    while (log.length > INTEREST_LOG_MAX) log.shift();
+    chrome.storage.local.set({ [INTEREST_LOG_KEY]: log });
+  });
+
+  // TODO: once /api/interest exists, add a RECORD_INTEREST handler in
+  // background.js that POSTs `event` there. This call is future-proofed
+  // for that; today it's a no-op if there's no listener.
+  chrome.runtime.sendMessage({ type: 'RECORD_INTEREST', event }, () => {
+    void chrome.runtime.lastError; // expected until background.js implements this
+  });
+}
+
 // ---------- Avatar (bottom-right corner) ----------
 
 function buildAvatar() {
@@ -128,6 +176,9 @@ function buildAvatar() {
     <div id="studbud-avatar-xp"></div>
     <button id="studbud-avatar-toggle" title="Minimize">–</button>
   `;
+  // documentElement, not body: some pages (e.g. Google search results) apply a
+  // transform to elements under <body>, which turns it into the containing
+  // block for position:fixed children and breaks viewport anchoring/scroll-tracking.
   document.documentElement.appendChild(avatar);
 
   document.getElementById('studbud-avatar-toggle').addEventListener('click', () => {
@@ -153,6 +204,35 @@ function buildTaskWidget() {
       <input id="studbud-task-input" type="text" placeholder="What are you working on?" />
       <button id="studbud-task-submit">Break it down</button>
       <div id="studbud-subtask-current"></div>
+      <div id="studbud-upsell">
+        <button id="studbud-upsell-toggle" type="button">
+          <span id="studbud-upsell-toggle-arrow">▸</span> More features coming soon
+        </button>
+        <div id="studbud-upsell-panel" class="studbud-hidden">
+          <div class="studbud-upsell-card">
+            <div class="studbud-upsell-card-title">🔒 Syllabus &amp; Rubric Parser</div>
+            <div class="studbud-upsell-card-desc">Drop in your syllabus, rubric, or assignment brief and get a breakdown built from the exact requirements — not a guess.</div>
+            <button class="studbud-upsell-btn" id="studbud-upsell-btn-parser" data-feature="parser">Coming Soon</button>
+          </div>
+          <div class="studbud-upsell-card">
+            <div class="studbud-upsell-card-title">🔒 Smart Schedule Sync</div>
+            <div class="studbud-upsell-card-desc">Connect Canvas, Google Calendar, Notion, and more so StudBud knows what's due and helps you pick what to work on next.</div>
+            <button class="studbud-upsell-btn" id="studbud-upsell-btn-injection" data-feature="injection_system">Coming Soon</button>
+            <div id="studbud-integration-picker" class="studbud-hidden">
+              <div class="studbud-integration-picker-label">Which would you actually use?</div>
+              <label class="studbud-integration-option"><input type="checkbox" value="canvas" /> Canvas</label>
+              <label class="studbud-integration-option"><input type="checkbox" value="blackboard" /> Blackboard</label>
+              <label class="studbud-integration-option"><input type="checkbox" value="brightspace" /> Brightspace</label>
+              <label class="studbud-integration-option"><input type="checkbox" value="google_calendar" /> Google Calendar</label>
+              <label class="studbud-integration-option"><input type="checkbox" value="google_classroom" /> Google Classroom</label>
+              <label class="studbud-integration-option"><input type="checkbox" value="google_docs" /> Google Docs</label>
+              <label class="studbud-integration-option"><input type="checkbox" value="notion" /> Notion</label>
+              <label class="studbud-integration-option"><input type="checkbox" value="todoist" /> Todoist</label>
+              <button id="studbud-integration-submit">Submit</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   `;
   document.documentElement.appendChild(widget);
@@ -161,6 +241,34 @@ function buildTaskWidget() {
     state.taskWidgetMinimized = !state.taskWidgetMinimized;
     saveState();
     render();
+  });
+
+  document.getElementById('studbud-upsell-toggle').addEventListener('click', () => {
+    const panel = document.getElementById('studbud-upsell-panel');
+    const arrow = document.getElementById('studbud-upsell-toggle-arrow');
+    const isOpen = panel.classList.toggle('studbud-hidden') === false;
+    arrow.textContent = isOpen ? '▾' : '▸';
+  });
+
+  document.getElementById('studbud-upsell-btn-parser').addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    recordInterest('parser');
+    btn.textContent = '✓ Thanks — noted!';
+    btn.disabled = true;
+  });
+
+  document.getElementById('studbud-upsell-btn-injection').addEventListener('click', (e) => {
+    e.currentTarget.classList.add('studbud-hidden');
+    document.getElementById('studbud-integration-picker').classList.remove('studbud-hidden');
+  });
+
+  document.getElementById('studbud-integration-submit').addEventListener('click', () => {
+    const picker = document.getElementById('studbud-integration-picker');
+    const integrations = Array.from(
+      picker.querySelectorAll('input[type="checkbox"]:checked')
+    ).map((el) => el.value);
+    recordInterest('injection_system', integrations);
+    picker.innerHTML = '<div class="studbud-upsell-thanks">✓ Thanks — we\'ll let you know!</div>';
   });
 
   document.getElementById('studbud-task-submit').addEventListener('click', onSubmitTask);
