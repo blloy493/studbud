@@ -1,5 +1,3 @@
-//Interest.js
-
 // api/interest.js
 // Vercel serverless function. Deploy path: /api/interest
 // Records "coming soon" feature interest clicks (parser / injection_system)
@@ -9,7 +7,14 @@
 
 import { Redis } from '@upstash/redis';
 
-const redis = Redis.fromEnv();
+// fromEnv() only looks for the unprefixed UPSTASH_REDIS_REST_URL/TOKEN names.
+// Vercel prefixed these with the store name (STUDBUD_INTEREST_) because
+// that's what the database was named during setup, so we point at those
+// explicitly instead.
+const redis = new Redis({
+  url: process.env.STUDBUD_INTEREST_KV_REST_API_URL,
+  token: process.env.STUDBUD_INTEREST_KV_REST_API_TOKEN,
+});
 
 const VALID_FEATURES = new Set(['parser', 'injection_system']);
 const MAX_INTEGRATIONS = 20; // abuse guard, not a real limit — we only ever send ~8
