@@ -5,8 +5,8 @@
 // v5 changes:
 // - Prompt goal: finish the task, not just start it
 // - New "details" array (parallel to "subtasks") with HOW-to text per step
-// - Input cap 500 -> 2000 (students can paste assignment instructions)
-// - max_tokens 400 -> 1000 (details need room)
+// - Input cap 500 -> 8000 (students can paste a full assignment brief / rubric)
+// - max_tokens 400 -> 1600 (details + up to 12 steps need room)
 // - Server-side validation keeps subtasks/details aligned
 
 export default async function handler(req, res) {
@@ -31,9 +31,9 @@ export default async function handler(req, res) {
   }
 
   // Basic abuse guard: cap input length so a single request can't balloon cost.
-  // Raised from 500 so students can paste assignment instructions.
-  if (task.length > 2000) {
-    return res.status(400).json({ error: 'Task description too long (max 2000 characters)' });
+  // Raised from 500 so students can paste a full assignment brief (~2k tokens at the cap).
+  if (task.length > 8000) {
+    return res.status(400).json({ error: 'Task description too long (max 8000 characters)' });
   }
 
   try {
@@ -53,6 +53,7 @@ export default async function handler(req, res) {
               '"title": a short label of 3-6 words in Title Case that names what the work is. ' +
               'It is a noun phrase describing the task itself, not a restatement of the student\'s wording; leave out deadlines, filler and instructions. ' +
               '"subtasks": an array of 4-8 short imperative steps (under 12 words each) that, followed in order, take the student from not started to finished work. ' +
+              'If the student provides a full assignment brief, use up to 12 steps. ' +
               'Each step must be one concrete action completable in roughly 5-25 minutes; split anything bigger. ' +
               '"details": an array with the same length and order as "subtasks". Each entry is 1-2 sentences explaining HOW to do that step, so the student does not need to look anything up. ' +
               'When a step depends on a rule, pattern or format, state it in the detail (e.g. the citation pattern for a book). ' +
@@ -62,6 +63,10 @@ export default async function handler(req, res) {
               'If a requirement is set by the instructor and the student did not state it (length, number of sources, annotation type, required sections), make an early step such as "Check your assignment instructions for X, Y, Z" and list in the detail what to look for. ' +
               'Do not add that step if the task has no instructor-set parameters. ' +
               'If you are not sure whether something is a standard convention or varies by instructor, write "confirm with your assignment instructions" instead of asserting it. ' +
+              'ASSIGNMENT BRIEFS: if the student pastes a full assignment brief, rubric or list of requirements, extract its requirements and build the steps so that completing every step satisfies them. ' +
+              'In each step\'s detail, name the requirement it covers (e.g. "Rubric: thesis, 20%"). ' +
+              'Make the last step a final review whose detail lists every requirement from the brief as a checklist. ' +
+              'Use the brief\'s own wording and numbers; never add requirements the brief does not contain, and do not copy the brief at length. ' +
               'The first step should be the smallest possible action that removes the "where do I even start" barrier. ' +
               'The last step should be a short final review of the finished work. ' +
               'Do not include generic study-habit filler (e.g. "find a quiet place to work") unless the student\'s own wording points to it. ' +
@@ -91,7 +96,7 @@ export default async function handler(req, res) {
         ],
         response_format: { type: 'json_object' }, // guarantees syntactically valid JSON (object, not array)
         temperature: 0.2, // low: favors grounded, literal steps over creative/inferred ones
-        max_tokens: 1000, // raised from 400: details roughly double the output size
+        max_tokens: 1600, // raised from 400: details and up to 12 steps need room
       }),
     });
 

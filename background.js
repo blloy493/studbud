@@ -8,7 +8,7 @@ const INTEREST_ENDPOINT = 'https://studbud-two.vercel.app/api/interest';
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'BREAKDOWN_TASK') {
     handleBreakdown(message.task)
-      .then(({ subtasks, title }) => sendResponse({ ok: true, subtasks, title }))
+      .then(({ subtasks, title, details }) => sendResponse({ ok: true, subtasks, title, details }))
       .catch((err) => {
         console.error('Breakdown request failed:', err);
         sendResponse({ ok: false, error: err.message });
@@ -44,7 +44,7 @@ async function handleBreakdown(task) {
   }
 
   const data = await res.json();
-  return { subtasks: data.subtasks, title: data.title };
+  return { subtasks: data.subtasks, title: data.title, details: data.details };
 }
 
 async function handleRecordInterest(event) {

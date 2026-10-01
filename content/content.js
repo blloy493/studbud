@@ -246,7 +246,7 @@ function buildTaskWidget() {
     </div>
     <div id="studbud-task-mini"></div>
     <div id="studbud-task-body">
-      <input id="studbud-task-input" type="text" maxlength="2000" placeholder="What are you working on?" />
+      <textarea id="studbud-task-input" rows="3" maxlength="8000" placeholder="What are you working on? Paste your assignment instructions for the best steps."></textarea>
       <button id="studbud-task-submit">Break it down</button>
       <div id="studbud-subtask-current"></div>
       <div id="studbud-upsell">
@@ -317,8 +317,12 @@ function buildTaskWidget() {
   });
 
   document.getElementById('studbud-task-submit').addEventListener('click', onSubmitTask);
+  // Enter submits; Shift+Enter adds a newline (textarea). Ignore Enter during IME composition.
   document.getElementById('studbud-task-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') onSubmitTask();
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      onSubmitTask();
+    }
   });
 }
 
@@ -348,7 +352,8 @@ function onSubmitTask() {
     }
 
     // response.title is optional until the API is updated; fall back to what the user typed.
-    state.taskTitle = (response.title && String(response.title).trim()) || task;
+    // Fallback is truncated: `task` can now be a pasted multi-paragraph assignment brief.
+    state.taskTitle = (response.title && String(response.title).trim()) || task.slice(0, 60);
     // response.details is parallel to response.subtasks; older/missing values fall back to ''.
     const details = Array.isArray(response.details) ? response.details : [];
     state.subtasks = response.subtasks.map((text, i) => ({
@@ -526,7 +531,7 @@ function renderCurrentSubtask() {
   }
 
   const step = subtasks[currentSubtaskIndex];
-  const title = state.taskTitle || state.currentTask || '';
+  const title = (state.taskTitle || state.currentTask || '').slice(0, 60);
   container.innerHTML = `
     <div class="studbud-current-task">Current Task: ${escapeHtml(title)}</div>
     <div class="studbud-step-progress">Step ${currentSubtaskIndex + 1} of ${subtasks.length}</div>
