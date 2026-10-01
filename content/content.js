@@ -10,12 +10,55 @@ const DEFAULT_SETTINGS = {
   excludedSites: [],
 };
 
-// Placeholder emoji per stage until real avatar art exists.
+// Basic flat-vector placeholder art per stage, matching the widget's indigo
+// accent palette. Not final pixel art — swap `art` for real assets later
+// without touching anything else (render() only ever reads .art / .label).
 // Index = evolution stage (0, 1, 2). Adjust "min" xp thresholds as needed.
 const EVOLUTION_STAGES = [
-  { min: 0, emoji: '🥚', label: 'Egg' },
-  { min: 50, emoji: '🐣', label: 'Hatchling' },
-  { min: 150, emoji: '🐥', label: 'Fledgling' },
+  {
+    min: 0,
+    label: 'Egg',
+    art: `
+      <svg viewBox="0 0 64 64" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="32" cy="36" rx="18" ry="24" fill="#f5f3ff" stroke="#4f46e5" stroke-width="2"/>
+        <circle cx="25" cy="26" r="2" fill="#c7d2fe"/>
+        <circle cx="40" cy="30" r="1.6" fill="#c7d2fe"/>
+        <circle cx="28" cy="44" r="1.8" fill="#c7d2fe"/>
+        <circle cx="38" cy="47" r="1.4" fill="#c7d2fe"/>
+      </svg>`,
+  },
+  {
+    min: 50,
+    label: 'Hatchling',
+    art: `
+      <svg viewBox="0 0 64 64" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 48 Q6 30 22 24 L24 32 L14 34 L20 38 L15 42 Z" fill="#f5f3ff" stroke="#4f46e5" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M56 48 Q58 30 42 24 L40 32 L50 34 L44 38 L49 42 Z" fill="#f5f3ff" stroke="#4f46e5" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="32" cy="27" r="15" fill="#a5b4fc" stroke="#4f46e5" stroke-width="1.5"/>
+        <circle cx="26" cy="24" r="4" fill="#ffffff"/>
+        <circle cx="38" cy="24" r="4" fill="#ffffff"/>
+        <circle cx="27" cy="25" r="1.8" fill="#1a1a1a"/>
+        <circle cx="37" cy="25" r="1.8" fill="#1a1a1a"/>
+        <path d="M29 31 L35 31 L32 35 Z" fill="#fbbf24"/>
+      </svg>`,
+  },
+  {
+    min: 150,
+    label: 'Fledgling',
+    art: `
+      <svg viewBox="0 0 64 64" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="18" cy="36" rx="9" ry="13" fill="#818cf8" stroke="#4338ca" stroke-width="1.5" transform="rotate(-18 18 36)"/>
+        <ellipse cx="46" cy="36" rx="9" ry="13" fill="#818cf8" stroke="#4338ca" stroke-width="1.5" transform="rotate(18 46 36)"/>
+        <path d="M32 50 L26 58 L38 58 Z" fill="#6366f1"/>
+        <circle cx="32" cy="32" r="20" fill="#6366f1" stroke="#4338ca" stroke-width="2"/>
+        <path d="M26 14 L32 4 L36 14 Z" fill="#fbbf24"/>
+        <circle cx="25" cy="29" r="4.5" fill="#ffffff"/>
+        <circle cx="39" cy="29" r="4.5" fill="#ffffff"/>
+        <circle cx="26" cy="30" r="2" fill="#1a1a1a"/>
+        <circle cx="40" cy="30" r="2" fill="#1a1a1a"/>
+        <path d="M28 37 L36 37 L32 42 Z" fill="#fbbf24"/>
+      </svg>`,
+  },
 ];
 
 const FOCUS_DURATION_MS = 25 * 60 * 1000; // 25 minutes
@@ -24,7 +67,7 @@ const FOCUS_BONUS_XP = 5;
 const DEFAULT_STATE = {
   currentTask: null,       // string or null (raw text the user typed)
   taskTitle: null,         // short AI-generated name for the task (falls back to currentTask)
-  subtasks: [],            // [{ text, done }]
+  subtasks: [],            // [{ text, detail, done }] (detail is '' for tasks saved before v5)
   currentSubtaskIndex: 0,  // which subtask is currently shown
   xp: 0,
   evolutionStage: 0,       // derived from xp, but stored to detect stage-up transitions
@@ -80,8 +123,9 @@ function loadSettings() {
   });
 }
 
-// Live-apply the hide-avatar setting without requiring a page reload.
-// (Site-exclusion changes still require a reload — see init().)
+// Live-apply settings and state changes made in other tabs, so progress
+// (subtasks, XP, current step, focus session) stays consistent everywhere
+// without requiring a manual reload.
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return;
 
@@ -93,16 +137,17 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     }
   }
 
-  // Keep multiple open tabs in sync on the focus session specifically,
-  // so a session completed in one tab doesn't keep ticking in others.
-  if (changes[STATE_KEY]) {
-    const newFocusSession = changes[STATE_KEY].newValue && changes[STATE_KEY].newValue.focusSession;
-    if (!newFocusSession && state.focusSession) {
-      state.focusSession = null;
-      stopFocusTicking();
-      renderFocusArea();
-      renderMini();
+  if (changes[STATE_KEY] && changes[STATE_KEY].newValue) {
+    const hadFocusSession = !!state.focusSession;
+    state = { ...DEFAULT_STATE, ...changes[STATE_KEY].newValue };
+
+    if (state.focusSession && !hadFocusSession) {
+      startFocusTicking(); // a focus session was started in another tab
+    } else if (!state.focusSession && hadFocusSession) {
+      stopFocusTicking(); // it was stopped/completed elsewhere
     }
+
+    render();
   }
 });
 
@@ -172,7 +217,7 @@ function buildAvatar() {
   const avatar = document.createElement('div');
   avatar.id = 'studbud-avatar';
   avatar.innerHTML = `
-    <div id="studbud-avatar-face">${EVOLUTION_STAGES[0].emoji}</div>
+    <div id="studbud-avatar-face">${EVOLUTION_STAGES[0].art}</div>
     <div id="studbud-avatar-xp"></div>
     <button id="studbud-avatar-toggle" title="Minimize">–</button>
   `;
@@ -201,23 +246,23 @@ function buildTaskWidget() {
     </div>
     <div id="studbud-task-mini"></div>
     <div id="studbud-task-body">
-      <input id="studbud-task-input" type="text" placeholder="What are you working on?" />
+      <input id="studbud-task-input" type="text" maxlength="2000" placeholder="What are you working on?" />
       <button id="studbud-task-submit">Break it down</button>
       <div id="studbud-subtask-current"></div>
       <div id="studbud-upsell">
         <button id="studbud-upsell-toggle" type="button">
-          <span id="studbud-upsell-toggle-arrow">▸</span> More features coming soon
+          <span id="studbud-upsell-toggle-arrow">▸</span> More features coming soon!
         </button>
         <div id="studbud-upsell-panel" class="studbud-hidden">
           <div class="studbud-upsell-card">
-            <div class="studbud-upsell-card-title">🔒 Syllabus &amp; Rubric Parser</div>
+            <div class="studbud-upsell-card-title">🔒 Syllabus &amp; Rubric Analyzer</div>
             <div class="studbud-upsell-card-desc">Drop in your syllabus, rubric, or assignment brief and get a breakdown built from the exact requirements — not a guess.</div>
-            <button class="studbud-upsell-btn" id="studbud-upsell-btn-parser" data-feature="parser">Coming Soon</button>
+            <button class="studbud-upsell-btn" id="studbud-upsell-btn-parser" data-feature="parser">Coming Soon — Interested?</button>
           </div>
           <div class="studbud-upsell-card">
             <div class="studbud-upsell-card-title">🔒 Smart Schedule Sync</div>
             <div class="studbud-upsell-card-desc">Connect Canvas, Google Calendar, Notion, and more so StudBud knows what's due and helps you pick what to work on next.</div>
-            <button class="studbud-upsell-btn" id="studbud-upsell-btn-injection" data-feature="injection_system">Coming Soon</button>
+            <button class="studbud-upsell-btn" id="studbud-upsell-btn-injection" data-feature="injection_system">Coming Soon — Interested?</button>
             <div id="studbud-integration-picker" class="studbud-hidden">
               <div class="studbud-integration-picker-label">Which would you actually use?</div>
               <label class="studbud-integration-option"><input type="checkbox" value="canvas" /> Canvas</label>
@@ -304,7 +349,13 @@ function onSubmitTask() {
 
     // response.title is optional until the API is updated; fall back to what the user typed.
     state.taskTitle = (response.title && String(response.title).trim()) || task;
-    state.subtasks = response.subtasks.map((text) => ({ text, done: false }));
+    // response.details is parallel to response.subtasks; older/missing values fall back to ''.
+    const details = Array.isArray(response.details) ? response.details : [];
+    state.subtasks = response.subtasks.map((text, i) => ({
+      text,
+      detail: typeof details[i] === 'string' ? details[i] : '',
+      done: false,
+    }));
     saveState();
     render();
   });
@@ -323,8 +374,11 @@ function completeCurrentSubtask() {
   // The focus session is session-level, not step-level: it keeps running
   // across step completion and only ends on timeout or "Stop".
 
-  saveState();
+  // render() first: it recomputes state.evolutionStage from the new xp, so
+  // saveState() persists the corrected value instead of a stale one (which
+  // caused the evolve animation to falsely re-fire on the next page load).
   render();
+  saveState();
   playCompleteAnimation();
 }
 
@@ -366,8 +420,8 @@ function stopFocusSession(awardBonus) {
   }
   state.focusSession = null;
   stopFocusTicking();
+  render(); // recomputes evolutionStage from xp before it's persisted below
   saveState();
-  render(); // full render so XP/evolution updates if the bonus was awarded
 }
 
 function startFocusTicking() {
@@ -433,7 +487,7 @@ function render() {
   state.evolutionStage = newStage;
 
   const face = document.getElementById('studbud-avatar-face');
-  face.textContent = EVOLUTION_STAGES[newStage].emoji;
+  face.innerHTML = EVOLUTION_STAGES[newStage].art;
   avatar.title = EVOLUTION_STAGES[newStage].label;
 
   const nextThreshold = getNextThreshold(newStage);
@@ -477,6 +531,7 @@ function renderCurrentSubtask() {
     <div class="studbud-current-task">Current Task: ${escapeHtml(title)}</div>
     <div class="studbud-step-progress">Step ${currentSubtaskIndex + 1} of ${subtasks.length}</div>
     <div class="studbud-step-text">${escapeHtml(step.text)} <span class="studbud-step-xp">+10 XP</span></div>
+    ${step.detail ? `<div class="studbud-step-detail">${escapeHtml(step.detail)}</div>` : ''}
     ${focusSlot}
     <button id="studbud-step-next">Next Step →</button>
   `;

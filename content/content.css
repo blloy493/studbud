@@ -39,7 +39,17 @@
 }
 
 #studbud-avatar-face {
-  font-size: 56px;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#studbud-avatar-face svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 #studbud-avatar.minimized {
@@ -63,7 +73,8 @@
 }
 
 #studbud-avatar.minimized #studbud-avatar-face {
-  font-size: 16px;
+  width: 16px;
+  height: 16px;
 }
 
 #studbud-avatar-toggle {
@@ -111,6 +122,12 @@
   display: none;
 }
 
+/* Step details make the widget taller; keep it inside the viewport. */
+#studbud-task-body {
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
 #studbud-task-input {
   width: 100%;
   box-sizing: border-box;
@@ -151,6 +168,14 @@
   font-size: 14px;
   margin-bottom: 8px;
   line-height: 1.4;
+}
+
+.studbud-step-detail {
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.4;
+  margin: 0 0 8px;
+  overflow-wrap: break-word;
 }
 
 #studbud-step-next {
@@ -330,7 +355,7 @@
   display: none;
 }
 
-#studbud-upsell-panel {
+#studbud-upsell-panel:not(.studbud-hidden) {
   margin-top: 6px;
   display: flex;
   flex-direction: column;
