@@ -65,9 +65,11 @@ const FOCUS_DURATION_MS = 25 * 60 * 1000; // 25 minutes
 const FOCUS_BONUS_XP = 5;
 
 const DEFAULT_STATE = {
-  currentTask: null,       // string or null (raw text the user typed)
+  currentTask: null,       // string or null (the pasted assignment text)
   taskTitle: null,         // short AI-generated name for the task (falls back to currentTask)
-  subtasks: [],            // [{ text, detail, done }] (detail is '' for tasks saved before v5)
+  subtasks: [],            // [{ kind, text, detail, done, ...kind-specific }]; kind is 'do' | 'copy' | 'citation' (missing = 'do')
+  clarify: null,           // { round, questions, answers } while the server is asking for missing details, else null
+  analysesUsed: 0,         // successful assignment analyses (beta cap, see ANALYSIS_LIMIT)
   currentSubtaskIndex: 0,  // which subtask is currently shown
   xp: 0,
   evolutionStage: 0,       // derived from xp, but stored to detect stage-up transitions
@@ -246,19 +248,12 @@ function buildTaskWidget() {
     </div>
     <div id="studbud-task-mini"></div>
     <div id="studbud-task-body">
-      <textarea id="studbud-task-input" rows="3" maxlength="8000" placeholder="What are you working on? Paste your assignment instructions for the best steps."></textarea>
-      <button id="studbud-task-submit">Break it down</button>
       <div id="studbud-subtask-current"></div>
       <div id="studbud-upsell">
         <button id="studbud-upsell-toggle" type="button">
           <span id="studbud-upsell-toggle-arrow">▸</span> More features coming soon!
         </button>
         <div id="studbud-upsell-panel" class="studbud-hidden">
-          <div class="studbud-upsell-card">
-            <div class="studbud-upsell-card-title">🔒 Syllabus &amp; Rubric Analyzer</div>
-            <div class="studbud-upsell-card-desc">Drop in your syllabus, rubric, or assignment brief and get a breakdown built from the exact requirements — not a guess.</div>
-            <button class="studbud-upsell-btn" id="studbud-upsell-btn-parser" data-feature="parser">Coming Soon — Interested?</button>
-          </div>
           <div class="studbud-upsell-card">
             <div class="studbud-upsell-card-title">🔒 Smart Schedule Sync</div>
             <div class="studbud-upsell-card-desc">Connect Canvas, Google Calendar, Notion, and more so StudBud knows what's due and helps you pick what to work on next.</div>
@@ -295,13 +290,6 @@ function buildTaskWidget() {
     arrow.textContent = isOpen ? '▾' : '▸';
   });
 
-  document.getElementById('studbud-upsell-btn-parser').addEventListener('click', (e) => {
-    const btn = e.currentTarget;
-    recordInterest('parser');
-    btn.textContent = '✓ Thanks — noted!';
-    btn.disabled = true;
-  });
-
   document.getElementById('studbud-upsell-btn-injection').addEventListener('click', (e) => {
     e.currentTarget.classList.add('studbud-hidden');
     document.getElementById('studbud-integration-picker').classList.remove('studbud-hidden');
@@ -315,57 +303,93 @@ function buildTaskWidget() {
     recordInterest('injection_system', integrations);
     picker.innerHTML = '<div class="studbud-upsell-thanks">✓ Thanks — we\'ll let you know!</div>';
   });
-
-  document.getElementById('studbud-task-submit').addEventListener('click', onSubmitTask);
-  // Enter submits; Shift+Enter adds a newline (textarea). Ignore Enter during IME composition.
-  document.getElementById('studbud-task-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      onSubmitTask();
-    }
-  });
 }
 
-function onSubmitTask() {
-  const input = document.getElementById('studbud-task-input');
-  const task = input.value.trim();
-  if (!task) return;
+// ---------- Assignment intake (required) ----------
+// A breakdown is only built from a pasted assignment. If the text lacks key
+// details the server first asks up to 2 rounds of clarifying questions.
 
-  state.currentTask = task;
-  state.taskTitle = null;
-  state.subtasks = [];
-  state.currentSubtaskIndex = 0;
-  render(); // show a loading state immediately
+const ANALYSIS_LIMIT = 5;      // beta cap on successful analyses per install. CLIENT-SIDE ONLY: clearing extension storage resets it.
+const MIN_BRIEF_CHARS = 40;    // coarse client-side floor; the model does the real sufficiency check
+const MAX_BRIEF_CHARS = 8000;  // keep in sync with MAX_BRIEF in api/breakdown.js
 
-  const submitBtn = document.getElementById('studbud-task-submit');
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Thinking...';
+// UI-only drafts. Module variables (not saved state) so typing survives the
+// re-renders that any saveState() triggers, without writing on every keystroke.
+let intakeDraft = '';
+let clarifyDrafts = [];
+let fieldDraft = { key: '', value: '' };
+let requestInFlight = false;
+let intakeError = '';
+let accessRequested = false;
+let confirmDiscard = false;
 
-  chrome.runtime.sendMessage({ type: 'BREAKDOWN_TASK', task }, (response) => {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Break it down';
+function onSubmitIntake() {
+  const brief = intakeDraft.trim();
+  if (brief.length < MIN_BRIEF_CHARS) return;
+  requestBreakdown(brief, [], 0);
+}
 
-    if (!response || !response.ok) {
-      console.error('Breakdown failed:', response && response.error);
-      alert('Could not break down that task. Try again.');
+// round = number of clarification rounds the student has already answered.
+function requestBreakdown(brief, answers, round) {
+  requestInFlight = true;
+  intakeError = '';
+  render();
+
+  chrome.runtime.sendMessage({ type: 'BREAKDOWN_TASK', payload: { brief, answers, round } }, (response) => {
+    requestInFlight = false;
+
+    if (chrome.runtime.lastError || !response || !response.ok) {
+      console.error('Breakdown failed:', (response && response.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message));
+      intakeError = 'Could not analyze that. Your text is kept — try again.';
+      render();
       return;
     }
 
-    // response.title is optional until the API is updated; fall back to what the user typed.
-    // Fallback is truncated: `task` can now be a pasted multi-paragraph assignment brief.
-    state.taskTitle = (response.title && String(response.title).trim()) || task.slice(0, 60);
-    // response.details is parallel to response.subtasks; older/missing values fall back to ''.
-    const details = Array.isArray(response.details) ? response.details : [];
-    state.subtasks = response.subtasks.map((text, i) => ({
-      text,
-      detail: typeof details[i] === 'string' ? details[i] : '',
-      done: false,
-    }));
-    saveState();
+    if (response.status === 'needs_info' && Array.isArray(response.questions) && response.questions.length > 0) {
+      state.currentTask = brief;
+      state.clarify = { round: round + 1, questions: response.questions, answers };
+      clarifyDrafts = [];
+      saveState();
+      render();
+      return;
+    }
+
+    if (response.status === 'ready' && Array.isArray(response.steps) && response.steps.length > 0) {
+      state.currentTask = brief;
+      state.taskTitle = (response.title && String(response.title).trim()) || brief.slice(0, 60);
+      state.subtasks = response.steps.map(toStep);
+      state.currentSubtaskIndex = 0;
+      state.clarify = null;
+      state.analysesUsed = (state.analysesUsed || 0) + 1;
+      intakeDraft = '';
+      clarifyDrafts = [];
+      saveState();
+      render();
+      return;
+    }
+
+    intakeError = 'Got an unexpected response. Try again.';
     render();
   });
+}
 
-  input.value = '';
+function toStep(s) {
+  const base = { kind: s.kind, text: s.title, detail: s.detail || '', done: false };
+  if (s.kind === 'copy') return { ...base, copyText: s.text };
+  if (s.kind === 'citation') return { ...base, style: s.style, n: s.n, cite: { type: null, values: {}, fieldIndex: 0 } };
+  return base;
+}
+
+function resetPlan() {
+  state.subtasks = [];
+  state.currentSubtaskIndex = 0;
+  state.taskTitle = null;
+  state.currentTask = null;
+  state.clarify = null;
+  confirmDiscard = false;
+  intakeError = '';
+  saveState();
+  render();
 }
 
 function completeCurrentSubtask() {
@@ -373,6 +397,7 @@ function completeCurrentSubtask() {
   if (index >= state.subtasks.length) return;
 
   state.subtasks[index].done = true;
+  confirmDiscard = false;
   state.xp += 10;
   state.currentSubtaskIndex += 1;
 
@@ -514,35 +539,302 @@ function renderCurrentSubtask() {
   const container = document.getElementById('studbud-subtask-current');
   const { subtasks, currentSubtaskIndex } = state;
 
-  // #studbud-focus-area is always present so a running focus session stays
-  // visible even when there are no steps left (or no steps yet).
+  // #studbud-focus-area is present in every view so a running focus session stays visible.
   const focusSlot = `<div id="studbud-focus-area"></div>`;
 
-  if (subtasks.length === 0) {
-    container.innerHTML = focusSlot;
+  if (requestInFlight) {
+    container.innerHTML = `<div class="studbud-loading">Analyzing your assignment…</div>${focusSlot}`;
     renderFocusArea();
     return;
   }
 
-  if (currentSubtaskIndex >= subtasks.length) {
-    container.innerHTML = `<div class="studbud-step-done">All steps done! 🎉</div>${focusSlot}`;
-    renderFocusArea();
+  if (state.clarify) {
+    renderClarify(container, focusSlot);
+  } else if (subtasks.length === 0) {
+    renderIntake(container, focusSlot);
+  } else if (currentSubtaskIndex >= subtasks.length) {
+    container.innerHTML = `
+      <div class="studbud-step-done">All steps done! 🎉</div>
+      <button id="studbud-new-task" class="studbud-primary-btn">Start a new assignment</button>
+      ${focusSlot}`;
+    document.getElementById('studbud-new-task').addEventListener('click', resetPlan);
+  } else {
+    renderStep(container, focusSlot);
+  }
+  renderFocusArea();
+}
+
+function intakeErrorHtml() {
+  return intakeError ? `<div class="studbud-error">${escapeHtml(intakeError)}</div>` : '';
+}
+
+function renderIntake(container, focusSlot) {
+  const left = ANALYSIS_LIMIT - (state.analysesUsed || 0);
+
+  if (left <= 0) {
+    container.innerHTML = `
+      <div class="studbud-intake-title">Beta limit reached</div>
+      <div class="studbud-intake-sub">You've used all ${ANALYSIS_LIMIT} beta assignment analyses. Request more and we'll follow up.</div>
+      <button id="studbud-more-access" class="studbud-primary-btn">${accessRequested ? '✓ Requested — thanks!' : 'Request more access'}</button>
+      ${focusSlot}`;
+    const btn = document.getElementById('studbud-more-access');
+    btn.disabled = accessRequested;
+    btn.addEventListener('click', () => {
+      accessRequested = true;
+      recordInterest('parser'); // reuses the existing interest event; the analyzer is now the gated beta feature
+      btn.textContent = '✓ Requested — thanks!';
+      btn.disabled = true;
+    });
     return;
   }
 
-  const step = subtasks[currentSubtaskIndex];
-  const title = (state.taskTitle || state.currentTask || '').slice(0, 60);
   container.innerHTML = `
+    <div class="studbud-intake-title">Paste your assignment</div>
+    <div class="studbud-intake-sub">Include the prompt, requirements, and rubric if you have them. Your steps are built from this text.</div>
+    <textarea id="studbud-task-input" rows="6" maxlength="${MAX_BRIEF_CHARS}" placeholder="Paste the full assignment instructions here"></textarea>
+    <div class="studbud-intake-meta"><span id="studbud-intake-hint"></span><span>${left} of ${ANALYSIS_LIMIT} analyses left</span></div>
+    ${intakeErrorHtml()}
+    <button id="studbud-task-submit" class="studbud-primary-btn" disabled>Analyze assignment</button>
+    ${focusSlot}`;
+
+  const input = document.getElementById('studbud-task-input');
+  const submit = document.getElementById('studbud-task-submit');
+  const hint = document.getElementById('studbud-intake-hint');
+  input.value = intakeDraft;
+
+  const update = () => {
+    const len = input.value.trim().length;
+    submit.disabled = len < MIN_BRIEF_CHARS;
+    hint.textContent = len < MIN_BRIEF_CHARS ? `${MIN_BRIEF_CHARS - len} more characters needed` : '';
+  };
+  input.addEventListener('input', () => {
+    intakeDraft = input.value;
+    update();
+  });
+  submit.addEventListener('click', onSubmitIntake);
+  update();
+}
+
+function renderClarify(container, focusSlot) {
+  const { questions } = state.clarify;
+  container.innerHTML = `
+    <div class="studbud-intake-title">A few details first</div>
+    <div class="studbud-intake-sub">StudBud needs these to build accurate steps.</div>
+    ${questions.map((q, i) => `
+      <label class="studbud-field-label" for="studbud-clarify-${i}">${escapeHtml(q)}</label>
+      <input id="studbud-clarify-${i}" class="studbud-field-input" type="text" maxlength="300" />`).join('')}
+    ${intakeErrorHtml()}
+    <button id="studbud-clarify-submit" class="studbud-primary-btn" disabled>Build my steps</button>
+    <button id="studbud-clarify-cancel" class="studbud-link-btn">Start over</button>
+    ${focusSlot}`;
+
+  const submit = document.getElementById('studbud-clarify-submit');
+  const update = () => {
+    submit.disabled = !questions.every((_, i) => (clarifyDrafts[i] || '').trim());
+  };
+
+  questions.forEach((_, i) => {
+    const input = document.getElementById(`studbud-clarify-${i}`);
+    input.value = clarifyDrafts[i] || '';
+    input.addEventListener('input', () => {
+      clarifyDrafts[i] = input.value;
+      update();
+    });
+  });
+  update();
+
+  submit.addEventListener('click', () => {
+    const answers = [
+      ...state.clarify.answers,
+      ...questions.map((q, i) => ({ question: q, answer: clarifyDrafts[i].trim() })),
+    ];
+    requestBreakdown(state.currentTask, answers, state.clarify.round);
+  });
+  document.getElementById('studbud-clarify-cancel').addEventListener('click', () => {
+    state.clarify = null; // intakeDraft still holds the pasted text
+    intakeDraft = state.currentTask || intakeDraft;
+    clarifyDrafts = [];
+    intakeError = '';
+    saveState();
+    render();
+  });
+}
+
+function stepHeaderHtml(step) {
+  const title = (state.taskTitle || state.currentTask || '').slice(0, 60);
+  return `
     <div class="studbud-current-task">Current Task: ${escapeHtml(title)}</div>
-    <div class="studbud-step-progress">Step ${currentSubtaskIndex + 1} of ${subtasks.length}</div>
+    <div class="studbud-step-progress">Step ${state.currentSubtaskIndex + 1} of ${state.subtasks.length}</div>`;
+}
+
+function planFooterHtml() {
+  return `<button id="studbud-new-task" class="studbud-link-btn">${confirmDiscard ? 'Click again to discard this plan' : 'Start a new assignment'}</button>`;
+}
+
+function wirePlanFooter() {
+  const btn = document.getElementById('studbud-new-task');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    if (!confirmDiscard) {
+      confirmDiscard = true;
+      render();
+      return;
+    }
+    resetPlan();
+  });
+}
+
+function renderStep(container, focusSlot) {
+  const step = state.subtasks[state.currentSubtaskIndex];
+  if (step.kind === 'citation') {
+    renderCitationStep(container, focusSlot, step);
+    return;
+  }
+
+  const copyBlock = step.kind === 'copy' && step.copyText
+    ? `<div class="studbud-copy-box">${escapeHtml(step.copyText)}</div>
+       <button id="studbud-copy-btn" class="studbud-secondary-btn">Copy to clipboard</button>`
+    : '';
+
+  container.innerHTML = `
+    ${stepHeaderHtml(step)}
     <div class="studbud-step-text">${escapeHtml(step.text)} <span class="studbud-step-xp">+10 XP</span></div>
     ${step.detail ? `<div class="studbud-step-detail">${escapeHtml(step.detail)}</div>` : ''}
+    ${copyBlock}
     ${focusSlot}
     <button id="studbud-step-next">Next Step →</button>
+    ${planFooterHtml()}
   `;
 
   document.getElementById('studbud-step-next').addEventListener('click', completeCurrentSubtask);
-  renderFocusArea();
+  const copyBtn = document.getElementById('studbud-copy-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      flashCopyResult(copyBtn, copyRich(escapeHtml(step.copyText).replace(/\n/g, '<br>'), step.copyText), 'Copy to clipboard');
+    });
+  }
+  wirePlanFooter();
+}
+
+// Shows "Copied ✓" / "Copy failed" on the button briefly, then restores its label.
+function flashCopyResult(btn, copyPromise, restoreLabel) {
+  copyPromise.then((ok) => {
+    btn.textContent = ok ? 'Copied ✓' : 'Copy failed — select the text and copy it manually';
+    setTimeout(() => { if (btn.isConnected) btn.textContent = restoreLabel; }, 1800);
+  });
+}
+
+// ---- Citation micro-steps: pick source type -> one field at a time -> formatted result ----
+
+function renderCitationStep(container, focusSlot, step) {
+  const cite = step.cite;
+  const styleLabel = step.style === 'apa7' ? 'APA 7' : 'MLA 9';
+  const head = `${stepHeaderHtml(step)}
+    <div class="studbud-step-text">${escapeHtml(step.text)} <span class="studbud-step-xp">+10 XP</span></div>
+    ${step.detail ? `<div class="studbud-step-detail">${escapeHtml(step.detail)}</div>` : ''}`;
+
+  // 1) choose the source type
+  if (!cite.type) {
+    container.innerHTML = `
+      ${head}
+      <div class="studbud-field-label">Source ${step.n}: what kind of source is it? (${styleLabel})</div>
+      <div class="studbud-type-row">
+        ${CITE_TYPES.map((t) => `<button class="studbud-type-btn" data-type="${t.id}">${t.label}</button>`).join('')}
+      </div>
+      ${focusSlot}
+      ${planFooterHtml()}`;
+    container.querySelectorAll('.studbud-type-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        cite.type = btn.dataset.type;
+        cite.fieldIndex = 0;
+        cite.values = {};
+        saveState();
+        render();
+      });
+    });
+    wirePlanFooter();
+    return;
+  }
+
+  const fields = CITE_FIELDS[cite.type];
+  const typeLabel = CITE_TYPES.find((t) => t.id === cite.type).label;
+
+  // 2) one field at a time
+  if (cite.fieldIndex < fields.length) {
+    const f = fields[cite.fieldIndex];
+    const key = `${state.currentSubtaskIndex}:${cite.fieldIndex}`;
+    if (fieldDraft.key !== key) fieldDraft = { key, value: cite.values[f.key] || '' };
+
+    const isAuthors = f.key === 'authors';
+    const control = isAuthors
+      ? `<textarea id="studbud-cite-input" class="studbud-field-input" rows="3" placeholder="${f.hint}"></textarea>`
+      : `<input id="studbud-cite-input" class="studbud-field-input" type="text" placeholder="${f.hint}" />`;
+
+    container.innerHTML = `
+      ${head}
+      <div class="studbud-step-progress">Source ${step.n} · ${typeLabel} · field ${cite.fieldIndex + 1} of ${fields.length}</div>
+      <label class="studbud-field-label" for="studbud-cite-input">${f.prompt}${f.optional ? ' (optional)' : ''}</label>
+      ${control}
+      ${isAuthors ? '<div class="studbud-note">One author per line as Last, First. For an organization, type its name.</div><div id="studbud-author-preview" class="studbud-author-preview"></div>' : ''}
+      <button id="studbud-cite-next" class="studbud-primary-btn">Next</button>
+      <button id="studbud-cite-back" class="studbud-link-btn">← Back</button>
+      ${focusSlot}
+      ${planFooterHtml()}`;
+
+    const input = document.getElementById('studbud-cite-input');
+    const next = document.getElementById('studbud-cite-next');
+    const preview = document.getElementById('studbud-author-preview');
+    input.value = fieldDraft.value;
+
+    const update = () => {
+      const has = input.value.trim().length > 0;
+      next.disabled = !f.optional && !has;
+      next.textContent = f.optional && !has ? 'Skip' : 'Next';
+      if (preview) preview.textContent = has ? `→ ${previewAuthors(step.style, input.value)}` : '';
+    };
+    input.addEventListener('input', () => {
+      fieldDraft.value = input.value;
+      update();
+    });
+    next.addEventListener('click', () => {
+      cite.values[f.key] = input.value.trim();
+      cite.fieldIndex += 1;
+      saveState();
+      render();
+    });
+    document.getElementById('studbud-cite-back').addEventListener('click', () => {
+      if (cite.fieldIndex > 0) cite.fieldIndex -= 1;
+      else cite.type = null;
+      saveState();
+      render();
+    });
+    update();
+    wirePlanFooter();
+    return;
+  }
+
+  // 3) formatted result
+  const out = formatCitation(step.style, cite.type, cite.values);
+  container.innerHTML = `
+    ${head}
+    <div class="studbud-field-label">Source ${step.n} is ready. Paste it into your document.</div>
+    <div class="studbud-cite-preview">${out.html}</div>
+    <div class="studbud-note">${CITE_NOTES[step.style] || ''}</div>
+    <button id="studbud-cite-copy" class="studbud-primary-btn">Copy citation</button>
+    <button id="studbud-step-next">Done — Next Step →</button>
+    <button id="studbud-cite-back" class="studbud-link-btn">← Edit fields</button>
+    ${focusSlot}
+    ${planFooterHtml()}`;
+
+  const copyBtn = document.getElementById('studbud-cite-copy');
+  copyBtn.addEventListener('click', () => flashCopyResult(copyBtn, copyRich(out.html, out.text), 'Copy citation'));
+  document.getElementById('studbud-step-next').addEventListener('click', completeCurrentSubtask);
+  document.getElementById('studbud-cite-back').addEventListener('click', () => {
+    cite.fieldIndex = fields.length - 1;
+    saveState();
+    render();
+  });
+  wirePlanFooter();
 }
 
 function renderFocusArea() {
@@ -625,4 +917,227 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ===== BEGIN CITATION FORMATTER (pure functions: no DOM, no chrome.*) =====
+// Citations are formatted here, deterministically, never by the language model.
+// Known limits: titles are used exactly as typed (no automatic case conversion),
+// author suffixes such as "Jr." are not special-cased, and only three source
+// types per style are supported.
+
+const CITE_TYPES = [
+  { id: 'journal', label: 'Journal article' },
+  { id: 'book', label: 'Book' },
+  { id: 'website', label: 'Website' },
+];
+
+const CITE_FIELDS = {
+  journal: [
+    { key: 'authors', prompt: 'Paste the author names', hint: 'Smith, Jane' },
+    { key: 'year', prompt: 'Paste the year published', hint: '2021' },
+    { key: 'title', prompt: 'Paste the article title', hint: 'Article title' },
+    { key: 'container', prompt: 'Paste the journal name', hint: 'Journal name' },
+    { key: 'volume', prompt: 'Paste the volume number', hint: '12', optional: true },
+    { key: 'issue', prompt: 'Paste the issue number', hint: '3', optional: true },
+    { key: 'pages', prompt: 'Paste the page range', hint: '45-67', optional: true },
+    { key: 'url', prompt: 'Paste the DOI or URL', hint: '10.1000/xyz123 or https://...', optional: true },
+  ],
+  book: [
+    { key: 'authors', prompt: 'Paste the author names', hint: 'Smith, Jane' },
+    { key: 'year', prompt: 'Paste the year published', hint: '2019' },
+    { key: 'title', prompt: 'Paste the book title', hint: 'Book title' },
+    { key: 'publisher', prompt: 'Paste the publisher', hint: 'Publisher name' },
+  ],
+  website: [
+    { key: 'authors', prompt: 'Paste the author or organization', hint: 'Smith, Jane', optional: true },
+    { key: 'year', prompt: 'Paste the publication year or date', hint: '2022', optional: true },
+    { key: 'title', prompt: 'Paste the page title', hint: 'Page title' },
+    { key: 'container', prompt: 'Paste the website name', hint: 'Website name', optional: true },
+    { key: 'url', prompt: 'Paste the URL', hint: 'https://...' },
+  ],
+};
+
+const CITE_NOTES = {
+  apa7: 'APA uses sentence case for article, book and page titles. Check your capitalization.',
+  mla9: 'MLA uses title case for titles. Check your capitalization.',
+};
+
+function citeEscape(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// One entry per line (or ';'). "Last, First Middle" is a person; a line with no comma is kept as-is (organization).
+function parseAuthorLines(raw) {
+  return String(raw || '')
+    .split(/\n|;/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const idx = line.indexOf(',');
+      if (idx === -1) return { org: true, name: line };
+      const last = line.slice(0, idx).trim();
+      const firsts = line.slice(idx + 1).replace(/,/g, ' ').trim().split(/\s+/).filter(Boolean);
+      if (!last || firsts.length === 0) return { org: true, name: line.replace(/,/g, ' ').trim() };
+      return { org: false, last, firsts };
+    });
+}
+
+function apaInitials(firsts) {
+  return firsts
+    .map((t) => t.replace(/\./g, '').split('-').filter(Boolean).map((p) => p[0].toUpperCase() + '.').join('-'))
+    .filter(Boolean)
+    .join(' ');
+}
+
+function withPeriod(str) {
+  return /\.$/.test(str) ? str : str + '.';
+}
+
+function apaAuthors(entries) {
+  const names = entries.map((a) => (a.org ? a.name : `${a.last}, ${apaInitials(a.firsts)}`));
+  let out;
+  if (names.length === 1) out = names[0];
+  else if (names.length === 2) out = `${names[0]}, & ${names[1]}`;
+  else if (names.length <= 20) out = `${names.slice(0, -1).join(', ')}, & ${names[names.length - 1]}`;
+  else out = `${names.slice(0, 19).join(', ')}, . . . ${names[names.length - 1]}`;
+  return withPeriod(out);
+}
+
+function mlaAuthors(entries) {
+  const first = entries[0];
+  const firstName = first.org ? first.name : `${first.last}, ${first.firsts.join(' ')}`;
+  let out;
+  if (entries.length === 1) {
+    out = firstName;
+  } else if (entries.length === 2) {
+    const b = entries[1];
+    out = `${firstName}, and ${b.org ? b.name : `${b.firsts.join(' ')} ${b.last}`}`;
+  } else {
+    out = `${firstName}, et al.`;
+  }
+  return withPeriod(out);
+}
+
+function previewAuthors(style, raw) {
+  const entries = parseAuthorLines(raw);
+  if (entries.length === 0) return '';
+  return style === 'mla9' ? mlaAuthors(entries) : apaAuthors(entries);
+}
+
+const normPages = (p) => String(p).trim().replace(/\s*[-–—]+\s*/g, '–');
+const normUrl = (u) => (/^10\.\d{4,9}\//.test(String(u).trim()) ? 'https://doi.org/' + String(u).trim() : String(u).trim());
+const endPunct = (t) => (/[.?!]$/.test(t) ? '' : '.');
+const seg = (t, i) => ({ t, i: !!i });
+
+function renderSegs(segs) {
+  return {
+    text: segs.map((x) => x.t).join(''),
+    html: segs.map((x) => (x.i ? `<i>${citeEscape(x.t)}</i>` : citeEscape(x.t))).join(''),
+  };
+}
+
+// Join segments with ', ' and end with a period (MLA container/location elements).
+function mlaTail(list) {
+  const out = [];
+  list.forEach((x, idx) => {
+    if (idx > 0) out.push(seg(', '));
+    out.push(x);
+  });
+  out.push(seg('.'));
+  return out;
+}
+
+function formatAPA(type, v) {
+  const entries = parseAuthorLines(v.authors);
+  const a = entries.length ? apaAuthors(entries) : '';
+  const year = (v.year || '').trim() || 'n.d.';
+  const title = (v.title || '').trim();
+  const url = (v.url || '').trim();
+  const segs = [];
+
+  if (type === 'journal') {
+    segs.push(seg(`${a} (${year}). `), seg(`${title}${endPunct(title)} `), seg(v.container.trim(), true));
+    if (v.volume) segs.push(seg(', '), seg(v.volume.trim(), true));
+    if (v.issue) segs.push(seg(`(${v.issue.trim()})`));
+    if (v.pages) segs.push(seg(`, ${normPages(v.pages)}`));
+    segs.push(seg('.'));
+    if (url) segs.push(seg(` ${normUrl(url)}`));
+  } else if (type === 'book') {
+    segs.push(seg(`${a} (${year}). `), seg(title, true), seg(`${endPunct(title)} `), seg(withPeriod((v.publisher || '').trim())));
+  } else {
+    if (a) segs.push(seg(`${a} (${year}). `), seg(title, true), seg(`${endPunct(title)}`));
+    else segs.push(seg(title, true), seg(`${endPunct(title)} (${year}).`));
+    if (v.container) segs.push(seg(` ${withPeriod(v.container.trim())}`));
+    if (url) segs.push(seg(` ${normUrl(url)}`));
+  }
+  return renderSegs(segs);
+}
+
+function formatMLA(type, v) {
+  const entries = parseAuthorLines(v.authors);
+  const a = entries.length ? mlaAuthors(entries) : '';
+  const year = (v.year || '').trim();
+  const title = (v.title || '').trim();
+  const url = (v.url || '').trim();
+  const segs = [];
+
+  if (type === 'journal') {
+    const parts = [seg(v.container.trim(), true)];
+    if (v.volume) parts.push(seg(`vol. ${v.volume.trim()}`));
+    if (v.issue) parts.push(seg(`no. ${v.issue.trim()}`));
+    if (year) parts.push(seg(year));
+    if (v.pages) {
+      const np = normPages(v.pages);
+      parts.push(seg(`${np.includes('–') ? 'pp.' : 'p.'} ${np}`));
+    }
+    if (url) parts.push(seg(normUrl(url)));
+    segs.push(seg(`${a} “${title}${endPunct(title)}” `), ...mlaTail(parts));
+  } else if (type === 'book') {
+    segs.push(seg(`${a} `), seg(title, true), seg(`${endPunct(title)} `), seg(`${(v.publisher || '').trim()}, ${year}.`));
+  } else {
+    if (a) segs.push(seg(`${a} `));
+    segs.push(seg(`“${title}${endPunct(title)}” `));
+    const parts = [];
+    if (v.container) parts.push(seg(v.container.trim(), true));
+    if (year) parts.push(seg(year));
+    if (url) parts.push(seg(normUrl(url)));
+    segs.push(...mlaTail(parts));
+  }
+  return renderSegs(segs);
+}
+
+// -> { html, text }  (html has <i> for italics; text is plain)
+function formatCitation(style, type, values) {
+  return style === 'mla9' ? formatMLA(type, values) : formatAPA(type, values);
+}
+// ===== END CITATION FORMATTER =====
+
+// Copies rich text (italics survive pasting into Docs/Word) with a plain-text fallback.
+async function copyRich(html, text) {
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        }),
+      ]);
+      return true;
+    }
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+      document.documentElement.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e2) {
+      return false;
+    }
+  }
 }

@@ -7,8 +7,10 @@ const INTEREST_ENDPOINT = 'https://studbud-two.vercel.app/api/interest';
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'BREAKDOWN_TASK') {
-    handleBreakdown(message.task)
-      .then(({ subtasks, title, details }) => sendResponse({ ok: true, subtasks, title, details }))
+    // payload: { brief, answers, round }. The response is forwarded as-is:
+    // { status: 'needs_info', questions } or { status: 'ready', title, steps }.
+    handleBreakdown(message.payload)
+      .then((data) => sendResponse({ ok: true, ...data }))
       .catch((err) => {
         console.error('Breakdown request failed:', err);
         sendResponse({ ok: false, error: err.message });
@@ -31,11 +33,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false; // not for us, let other listeners handle it
 });
 
-async function handleBreakdown(task) {
+async function handleBreakdown(payload) {
   const res = await fetch(BREAKDOWN_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task }),
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
@@ -43,8 +45,7 @@ async function handleBreakdown(task) {
     throw new Error(body.error || `Request failed with status ${res.status}`);
   }
 
-  const data = await res.json();
-  return { subtasks: data.subtasks, title: data.title, details: data.details };
+  return res.json();
 }
 
 async function handleRecordInterest(event) {
