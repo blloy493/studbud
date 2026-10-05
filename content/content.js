@@ -5,6 +5,10 @@
 const STATE_KEY = 'studbudState';
 const SETTINGS_KEY = 'studbudSettings';
 
+const IDLE_AVATAR_SRC = chrome.runtime.getURL('idle_evol_1.png');
+const FOCUS_AVATAR_SRC = chrome.runtime.getURL('active_evol_1.png');
+
+
 const DEFAULT_SETTINGS = {
   avatarHidden: false,
   excludedSites: [],
@@ -18,29 +22,16 @@ const EVOLUTION_STAGES = [
   {
     min: 0,
     label: 'Egg',
-    art: `
-      <svg viewBox="0 0 64 64" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-        <ellipse cx="32" cy="36" rx="18" ry="24" fill="#f5f3ff" stroke="#4f46e5" stroke-width="2"/>
-        <circle cx="25" cy="26" r="2" fill="#c7d2fe"/>
-        <circle cx="40" cy="30" r="1.6" fill="#c7d2fe"/>
-        <circle cx="28" cy="44" r="1.8" fill="#c7d2fe"/>
-        <circle cx="38" cy="47" r="1.4" fill="#c7d2fe"/>
-      </svg>`,
+    idle: 'idle_evol_1.png',
+    focus: 'active_evol_1.png',
   },
+  
   {
     min: 50,
     label: 'Hatchling',
-    art: `
-      <svg viewBox="0 0 64 64" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-        <path d="M8 48 Q6 30 22 24 L24 32 L14 34 L20 38 L15 42 Z" fill="#f5f3ff" stroke="#4f46e5" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M56 48 Q58 30 42 24 L40 32 L50 34 L44 38 L49 42 Z" fill="#f5f3ff" stroke="#4f46e5" stroke-width="2" stroke-linejoin="round"/>
-        <circle cx="32" cy="27" r="15" fill="#a5b4fc" stroke="#4f46e5" stroke-width="1.5"/>
-        <circle cx="26" cy="24" r="4" fill="#ffffff"/>
-        <circle cx="38" cy="24" r="4" fill="#ffffff"/>
-        <circle cx="27" cy="25" r="1.8" fill="#1a1a1a"/>
-        <circle cx="37" cy="25" r="1.8" fill="#1a1a1a"/>
-        <path d="M29 31 L35 31 L32 35 Z" fill="#fbbf24"/>
-      </svg>`,
+    idle: 'idle_evol_2.png',
+    focus: 'active_evol_2.png',
+      
   },
   {
     min: 150,
@@ -305,6 +296,22 @@ function buildTaskWidget() {
   });
 }
 
+ 
+// ---------- Beta analytics ----------
+// Anonymous counters only (see api/events.js). No assignment text or answers are ever sent.
+// Events: plan_created | step_completed | plan_completed | finish_yes | finish_no
+ 
+async function trackEvent(name, elapsedSec) {
+  try {
+    const anonId = await getAnonId();
+    chrome.runtime.sendMessage({ type: 'RECORD_EVENT', event: { anonId, name, elapsedSec } }, () => {
+      void chrome.runtime.lastError; // analytics must never break the UI
+    });
+  } catch (e) {
+    /* ignore */
+  }
+}
+
 // ---------- Assignment intake (required) ----------
 // A breakdown is only built from a pasted assignment. If the text lacks key
 // details the server first asks up to 2 rounds of clarifying questions.
@@ -517,8 +524,16 @@ function render() {
   state.evolutionStage = newStage;
 
   const face = document.getElementById('studbud-avatar-face');
-  face.innerHTML = EVOLUTION_STAGES[newStage].art;
-  avatar.title = EVOLUTION_STAGES[newStage].label;
+
+// Get the stage object for the current XP level
+const stageConfig = EVOLUTION_STAGES[newStage];
+
+// Select either the focus or idle image for this specific stage
+const currentFilename = state.focusSession ? stageConfig.focus : stageConfig.idle;
+const avatarSrc = chrome.runtime.getURL(currentFilename);
+
+face.innerHTML = `<img src="${avatarSrc}" alt="Avatar" style="width: 100%; height: 100%; object-fit: contain;" />`;
+avatar.title = state.focusSession ? 'Focusing...' : stageConfig.label;
 
   const nextThreshold = getNextThreshold(newStage);
   const xpLabel = document.getElementById('studbud-avatar-xp');
@@ -591,7 +606,7 @@ function renderIntake(container, focusSlot) {
   container.innerHTML = `
     <div class="studbud-intake-title">Paste your assignment</div>
     <div class="studbud-intake-sub">Include the prompt, requirements, and rubric if you have them. Your steps are built from this text.</div>
-    <textarea id="studbud-task-input" rows="6" maxlength="${MAX_BRIEF_CHARS}" placeholder="Paste the full assignment instructions here"></textarea>
+    <textarea id="studbud-task-input" rows="6" maxlength="${MAX_BRIEF_CHARS}" placeholder="Paste your full assignment instructions here"></textarea>
     <div class="studbud-intake-meta"><span id="studbud-intake-hint"></span><span>${left} of ${ANALYSIS_LIMIT} analyses left</span></div>
     ${intakeErrorHtml()}
     <button id="studbud-task-submit" class="studbud-primary-btn" disabled>Analyze assignment</button>

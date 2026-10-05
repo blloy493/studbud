@@ -33,5 +33,12 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": ["idle_evol_1.png", "active_evol_1.png", "idle_evol_2.png", "active_evol_2.png"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

@@ -7,18 +7,18 @@
   font-family: system-ui, sans-serif;
   box-shadow: 0 2px 10px rgba(79, 70, 229, 0.15);
   border-radius: 12px;
-  background: #eef2ff;
-  border: 1px solid #c7d2fe;
-  color: #1a1a1a;
+  background: #e7e5e4;
+  border: 2px solid #590016;
+  color: #590016;
 }
 
 /* ---- Avatar: bottom-left corner ---- */
 
 #studbud-avatar {
-  bottom: 20px;
-  left: 20px;
-  width: 96px;
-  min-height: 96px;
+  bottom: 10px;
+  left: 10px;
+  width: 140px;
+  min-height: 140px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -28,10 +28,11 @@
 }
 
 #studbud-avatar-xp {
-  font-size: 11px;
-  color: #666;
-  margin-top: 2px;
+  font-size: 14px;
+  color: #000000;
+  margin-top: 5px;
   white-space: nowrap;
+  bottom: 10px;
 }
 
 #studbud-avatar.minimized #studbud-avatar-xp {
@@ -39,8 +40,8 @@
 }
 
 #studbud-avatar-face {
-  width: 56px;
-  height: 56px;
+  width: 110px;
+  height: 110px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -63,7 +64,7 @@
 }
 
 #studbud-avatar.studbud-evolved {
-  animation: studbud-pulse 1.2s ease;
+  animation: studbud-pulse 1.5s ease;
 }
 
 @keyframes studbud-pulse {
@@ -73,8 +74,8 @@
 }
 
 #studbud-avatar.minimized #studbud-avatar-face {
-  width: 16px;
-  height: 16px;
+  width: 32px;
+  height: 32px;
 }
 
 #studbud-avatar-toggle {
@@ -84,12 +85,17 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: none;
-  background: #e0e0e0;
+  border: 1px solid #000000;;
+  background: #590016;
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
   padding: 0;
+  color: #FFFFFF;
+  font-weight: 700; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
 }
 
 /* ---- Task widget: bottom-right corner ---- */
@@ -110,12 +116,17 @@
 }
 
 #studbud-task-toggle {
-  border: none;
-  background: #e0e0e0;
+  border: 1px solid  #000000;
+  background: #590016;
   border-radius: 50%;
   width: 20px;
   height: 20px;
   cursor: pointer;
+  color: #FFFFFF;
+  font-weight: 700;
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
 }
 
 #studbud-task-widget.minimized #studbud-task-body {
@@ -190,7 +201,7 @@
   padding: 6px 8px;
   border: none;
   border-radius: 6px;
-  background: #16a34a;
+  background: #590011;
   color: white;
   cursor: pointer;
   font-size: 13px;
@@ -198,7 +209,7 @@
 
 .studbud-step-xp {
   font-size: 11px;
-  color: #16a34a;
+  color: #228B22;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -207,7 +218,7 @@
   font-size: 14px;
   text-align: center;
   padding: 8px 0;
-  color: #16a34a;
+  color: #05480D;
   font-weight: 600;
 }
 
@@ -237,7 +248,7 @@
 
 .studbud-focus-timer {
   font-weight: 600;
-  color: #4f46e5;
+  color: #590016;
 }
 
 #studbud-focus-stop {
@@ -298,7 +309,7 @@
 .studbud-current-task {
   font-size: 12px;
   font-weight: 600;
-  color: #4f46e5;
+  color: #000000;
   margin-bottom: 2px;
   line-height: 1.3;
 }
@@ -346,8 +357,8 @@
   text-align: left;
   border: none;
   background: none;
-  color: #4f46e5;
-  font-size: 12px;
+  color: #000000;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   padding: 2px 0;

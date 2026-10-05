@@ -42,7 +42,7 @@ function saveSettings() {
 }
 
 function resetProgress() {
-  const confirmed = confirm('Reset all progress? This clears XP, evolution stage, and your current task. This cannot be undone.');
+  const confirmed = confirm('Reset all progress? This clears XP, evolution stage, and your current task. This cannot be undone. Changes will take affect after page reload.');
   if (!confirmed) return;
 
   chrome.storage.local.remove([STATE_KEY], () => {
