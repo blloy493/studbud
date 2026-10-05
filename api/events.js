@@ -5,12 +5,15 @@
 // It never receives assignment text, answers or any other student content.
 //
 // Redis layout (2 commands per event):
-//   events:u:<anonId>  HASH  { plan_created, step_completed, plan_completed, finish_yes, finish_no : counts, "d:YYYY-MM-DD": 1 }
+//   events:u:<anonId>  HASH  { <event name>: count, "d:YYYY-MM-DD": 1 }
 //   events:durations   LIST  seconds from plan creation to completion (latest 1000)
 
 import { Redis } from '@upstash/redis';
 
-const EVENTS = new Set(['plan_created', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no']);
+const EVENTS = new Set([
+  'plan_created', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
+  'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none', // upgrade-wall funnel
+]);
 const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 
 // Built lazily with the store's PREFIXED env var names (Redis.fromEnv() does not work here).

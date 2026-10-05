@@ -26,6 +26,7 @@ export function summarize(rows, durations) {
   const byCompleted = { '0': 0, '1': 0, '2': 0, '3+': 0 };
   let usersWithCompletion = 0;
   let activeDays = 0;
+  const funnel = { usersHitLimit: 0, usersClickedUpgrade: 0, priceChoices: { '3': 0, '5': 0, '8': 0, none: 0 } };
 
   rows.forEach((h) => {
     Object.keys(totals).forEach((k) => { totals[k] += num(h, k); });
@@ -33,6 +34,9 @@ export function summarize(rows, durations) {
     if (c > 0) usersWithCompletion += 1;
     byCompleted[c >= 3 ? '3+' : String(c)] += 1;
     activeDays += Object.keys(h).filter((k) => k.startsWith('d:')).length;
+    if (num(h, 'limit_hit') > 0) funnel.usersHitLimit += 1;
+    if (num(h, 'upgrade_click') > 0) funnel.usersClickedUpgrade += 1;
+    Object.keys(funnel.priceChoices).forEach((p) => { if (num(h, `price_${p}`) > 0) funnel.priceChoices[p] += 1; });
   });
 
   const users = rows.length;
@@ -51,6 +55,11 @@ export function summarize(rows, durations) {
     avgActiveDaysPerUser: users ? round2(activeDays / users) : null,
     usersByCompletedPlans: byCompleted,
     selfReportedFinished: { yes: totals.finish_yes, no: totals.finish_no, yesRate: answered ? round2(totals.finish_yes / answered) : null },
+    // Upgrade wall: of the users who hit the cap, how many clicked Upgrade, and what price they picked (users, not clicks).
+    upgradeFunnel: {
+      ...funnel,
+      clickRate: funnel.usersHitLimit ? round2(funnel.usersClickedUpgrade / funnel.usersHitLimit) : null,
+    },
     // Guards against "clicked Next through everything": completions faster than 2 minutes are suspect.
     completionTime: {
       samples: secs.length,

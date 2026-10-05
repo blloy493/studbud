@@ -58,9 +58,11 @@ const FOCUS_BONUS_XP = 5;
 const DEFAULT_STATE = {
   currentTask: null,       // string or null (the pasted assignment text)
   taskTitle: null,         // short AI-generated name for the task (falls back to currentTask)
-  subtasks: [],            // [{ kind, text, detail, done, ...kind-specific }]; kind is 'do' | 'copy' | 'citation' (missing = 'do')
+  subtasks: [],            // [{ kind, text, detail, done, ...kind-specific }]; kind is 'do' | 'copy' | 'citation' | 'question' (missing = 'do'); worksheet questions carry gid/group/ask
   clarify: null,           // { round, questions, answers } while the server is asking for missing details, else null
-  analysesUsed: 0,         // successful assignment analyses (beta cap, see ANALYSIS_LIMIT)
+  analysesUsed: 0,         // LEGACY: the beta cap now lives in `usage` (own storage key); this value is only read once to migrate old installs
+  planStartedAt: null,     // ms timestamp when the current plan was created (for completion-time analytics)
+  finishAnswered: false,   // true once the student answered "Did you finish this assignment?" for the current plan
   currentSubtaskIndex: 0,  // which subtask is currently shown
   xp: 0,
   evolutionStage: 0,       // derived from xp, but stored to detect stage-up transitions
@@ -95,6 +97,9 @@ async function init() {
   if (isExcluded) return; // don't inject anything on excluded sites
 
   state = await loadState();
+  const storedUsage = await loadUsage();
+  usage = storedUsage || { ...DEFAULT_USAGE, analysesUsed: state.analysesUsed || 0 }; // migrate existing installs once
+  if (!storedUsage) saveUsage();
   buildAvatar();
   buildTaskWidget();
   render();
@@ -130,6 +135,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     }
   }
 
+  if (changes[USAGE_KEY] && changes[USAGE_KEY].newValue) {
+    usage = { ...DEFAULT_USAGE, ...changes[USAGE_KEY].newValue };
+    if (document.getElementById('studbud-task-widget')) render();
+  }
+
   if (changes[STATE_KEY] && changes[STATE_KEY].newValue) {
     const hadFocusSession = !!state.focusSession;
     state = { ...DEFAULT_STATE, ...changes[STATE_KEY].newValue };
@@ -156,6 +166,31 @@ function saveState() {
   chrome.storage.local.set({ [STATE_KEY]: state });
 }
 
+// ---------- Beta usage counters ----------
+// Kept OUTSIDE the saved plan state so resetting progress (popup) cannot reset the beta cap.
+// Reinstalling the extension still resets it: only a server-side count could stop that.
+
+const USAGE_KEY = 'studbudUsage';
+const DEFAULT_USAGE = {
+  analysesUsed: 0,       // successful assignment analyses, compared against ANALYSIS_LIMIT
+  completedPlans: 0,     // plans taken through the last step (shown on the upgrade wall)
+  limitHit: false,       // true once the wall has been shown (limit_hit event is sent once)
+  priceChoice: null,     // '3' | '5' | '8' | 'none' once the student answered the price question
+};
+let usage = { ...DEFAULT_USAGE };
+
+function loadUsage() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([USAGE_KEY], (result) => {
+      resolve(result[USAGE_KEY] ? { ...DEFAULT_USAGE, ...result[USAGE_KEY] } : null);
+    });
+  });
+}
+
+function saveUsage() {
+  chrome.storage.local.set({ [USAGE_KEY]: usage });
+}
+
 // ---------- Coming-soon feature interest tracking ----------
 // No backend endpoint exists yet (pending a Vercel KV / Supabase decision —
 // see the extension's planning notes), so this logs locally so nothing is
@@ -174,7 +209,10 @@ function getAnonId() {
         resolve(result[ANON_ID_KEY]);
         return;
       }
-      const id = crypto.randomUUID();
+      // crypto.randomUUID is undefined on non-secure (http) pages, so fall back to random hex.
+      const id = crypto.randomUUID
+        ? crypto.randomUUID()
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
       chrome.storage.local.set({ [ANON_ID_KEY]: id }, () => resolve(id));
     });
   });
@@ -299,7 +337,8 @@ function buildTaskWidget() {
  
 // ---------- Beta analytics ----------
 // Anonymous counters only (see api/events.js). No assignment text or answers are ever sent.
-// Events: plan_created | step_completed | plan_completed | finish_yes | finish_no
+// Events: plan_created | step_completed | plan_completed | finish_yes | finish_no |
+//         limit_hit | upgrade_click | price_3 | price_5 | price_8 | price_none
  
 async function trackEvent(name, elapsedSec) {
   try {
@@ -316,7 +355,7 @@ async function trackEvent(name, elapsedSec) {
 // A breakdown is only built from a pasted assignment. If the text lacks key
 // details the server first asks up to 2 rounds of clarifying questions.
 
-const ANALYSIS_LIMIT = 5;      // beta cap on successful analyses per install. CLIENT-SIDE ONLY: clearing extension storage resets it.
+const ANALYSIS_LIMIT = 5;      // beta cap on successful analyses per install. CLIENT-SIDE ONLY: reinstalling resets it (see `usage`).
 const MIN_BRIEF_CHARS = 40;    // coarse client-side floor; the model does the real sufficiency check
 const MAX_BRIEF_CHARS = 8000;  // keep in sync with MAX_BRIEF in api/breakdown.js
 
@@ -327,7 +366,7 @@ let clarifyDrafts = [];
 let fieldDraft = { key: '', value: '' };
 let requestInFlight = false;
 let intakeError = '';
-let accessRequested = false;
+let upgradeStep = 'wall';      // UI only: 'wall' | 'poll' (price question)
 let confirmDiscard = false;
 
 function onSubmitIntake() {
@@ -364,10 +403,16 @@ function requestBreakdown(brief, answers, round) {
     if (response.status === 'ready' && Array.isArray(response.steps) && response.steps.length > 0) {
       state.currentTask = brief;
       state.taskTitle = (response.title && String(response.title).trim()) || brief.slice(0, 60);
-      state.subtasks = response.steps.map(toStep);
+      let gid = 0; // worksheet outlines: each 'question' step gets a group id that its micro-steps inherit
+      state.subtasks = response.steps.map((st) => toStep(st, st.kind === 'question' ? gid++ : null));
       state.currentSubtaskIndex = 0;
+      if (state.subtasks[0] && state.subtasks[0].kind === 'question') startExpand(0);
       state.clarify = null;
-      state.analysesUsed = (state.analysesUsed || 0) + 1;
+      usage.analysesUsed = (usage.analysesUsed || 0) + 1;
+      saveUsage();
+      state.planStartedAt = Date.now();
+      state.finishAnswered = false;
+      trackEvent('plan_created');
       intakeDraft = '';
       clarifyDrafts = [];
       saveState();
@@ -380,19 +425,72 @@ function requestBreakdown(brief, answers, round) {
   });
 }
 
-function toStep(s) {
+function toStep(s, gid) {
   const base = { kind: s.kind, text: s.title, detail: s.detail || '', done: false };
+  if (s.kind === 'question') return { ...base, ask: s.ask, gid };
   if (s.kind === 'copy') return { ...base, copyText: s.text };
   if (s.kind === 'citation') return { ...base, style: s.style, n: s.n, cite: { type: null, values: {}, fieldIndex: 0 } };
   return base;
 }
 
+// ---------- Worksheet questions: expanded into micro-steps on demand ----------
+// The plan for a question-based worksheet is an outline (one 'question' step per
+// question). Each is expanded only where the student clicked (never from render()),
+// so other open tabs cannot trigger duplicate requests.
+
+let expandingIndex = null;   // index of the question step currently being expanded in THIS tab
+let expandError = false;
+let expandSeq = 0;           // invalidates stale responses after a reset
+
+function startExpand(index) {
+  const step = state.subtasks[index];
+  if (!step || step.kind !== 'question' || expandingIndex !== null) return;
+  const seq = ++expandSeq;
+  const brief = state.currentTask;
+  expandingIndex = index;
+  expandError = false;
+
+  chrome.runtime.sendMessage(
+    { type: 'BREAKDOWN_TASK', payload: { mode: 'expand', brief, label: step.text, ask: step.ask } },
+    (response) => {
+      if (seq !== expandSeq) return; // plan was reset while this was in flight
+      expandingIndex = null;
+
+      // Another tab may already have expanded this question; if the plan changed, just redraw.
+      const cur = state.subtasks[index];
+      if (!cur || cur.kind !== 'question' || cur.gid !== step.gid || cur.text !== step.text || state.currentTask !== brief) {
+        render();
+        return;
+      }
+      const failed = chrome.runtime.lastError || !response || !response.ok ||
+        response.status !== 'ready' || !Array.isArray(response.steps) || response.steps.length === 0;
+      if (failed) {
+        expandError = true;
+        render();
+        return;
+      }
+      const subs = response.steps.map((x) => ({
+        kind: 'do', text: x.title, detail: x.detail || '', done: false,
+        gid: step.gid, group: step.text, ask: step.ask,
+      }));
+      state.subtasks.splice(index, 1, ...subs);
+      saveState();
+      render();
+    }
+  );
+}
+
 function resetPlan() {
+  expandSeq += 1; // drop any in-flight question expansion
+  expandingIndex = null;
+  expandError = false;
   state.subtasks = [];
   state.currentSubtaskIndex = 0;
   state.taskTitle = null;
   state.currentTask = null;
   state.clarify = null;
+  state.planStartedAt = null;
+  state.finishAnswered = false;
   confirmDiscard = false;
   intakeError = '';
   saveState();
@@ -407,6 +505,15 @@ function completeCurrentSubtask() {
   confirmDiscard = false;
   state.xp += 10;
   state.currentSubtaskIndex += 1;
+  const nextStep = state.subtasks[state.currentSubtaskIndex];
+  if (nextStep && nextStep.kind === 'question') startExpand(state.currentSubtaskIndex);
+
+  trackEvent('step_completed');
+  if (state.currentSubtaskIndex >= state.subtasks.length) {
+    trackEvent('plan_completed', state.planStartedAt ? Math.round((Date.now() - state.planStartedAt) / 1000) : undefined);
+    usage.completedPlans = (usage.completedPlans || 0) + 1;
+    saveUsage();
+  }
 
   // The focus session is session-level, not step-level: it keeps running
   // across step completion and only ends on timeout or "Stop".
@@ -570,9 +677,25 @@ function renderCurrentSubtask() {
   } else if (currentSubtaskIndex >= subtasks.length) {
     container.innerHTML = `
       <div class="studbud-step-done">All steps done! 🎉</div>
+      ${state.finishAnswered ? '' : `
+        <div class="studbud-field-label">Did you finish this assignment?</div>
+        <div class="studbud-type-row">
+          <button id="studbud-finish-yes" class="studbud-type-btn">Yes, it's done</button>
+          <button id="studbud-finish-no" class="studbud-type-btn">Not yet</button>
+        </div>`}
       <button id="studbud-new-task" class="studbud-primary-btn">Start a new assignment</button>
       ${focusSlot}`;
     document.getElementById('studbud-new-task').addEventListener('click', resetPlan);
+    [['studbud-finish-yes', 'finish_yes'], ['studbud-finish-no', 'finish_no']].forEach(([id, evt]) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        trackEvent(evt);
+        state.finishAnswered = true;
+        saveState();
+        render();
+      });
+    });
   } else {
     renderStep(container, focusSlot);
   }
@@ -583,23 +706,66 @@ function intakeErrorHtml() {
   return intakeError ? `<div class="studbud-error">${escapeHtml(intakeError)}</div>` : '';
 }
 
+// Shown instead of the intake form once the beta cap is used. Never shown mid-plan.
+// There is no billing yet: "Upgrade" is a demand test, so the copy says so.
+function renderUpgradeWall(container, focusSlot) {
+  const n = usage.completedPlans || 0;
+  const value = n > 0 ? `You've completed ${n} assignment${n === 1 ? '' : 's'} with StudBud. ` : '';
+
+  if (!usage.limitHit) {
+    usage.limitHit = true; // send limit_hit once per install
+    saveUsage();
+    trackEvent('limit_hit');
+  }
+
+  if (usage.priceChoice) {
+    container.innerHTML = `
+      <div class="studbud-intake-title">Thanks — that helps</div>
+      <div class="studbud-intake-sub">Paid plans aren't live yet. Your answer helps us set the price.</div>
+      ${focusSlot}`;
+    return;
+  }
+
+  if (upgradeStep === 'poll') {
+    container.innerHTML = `
+      <div class="studbud-intake-title">What would be fair per month?</div>
+      <div class="studbud-intake-sub">Paid plans aren't live yet. Your answer helps us price it.</div>
+      <div class="studbud-type-row">
+        <button class="studbud-type-btn" data-price="3">$3</button>
+        <button class="studbud-type-btn" data-price="5">$5</button>
+        <button class="studbud-type-btn" data-price="8">$8</button>
+        <button class="studbud-type-btn" data-price="none">Not interested</button>
+      </div>
+      ${focusSlot}`;
+    container.querySelectorAll('.studbud-type-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const choice = btn.dataset.price;
+        trackEvent(`price_${choice}`);
+        usage.priceChoice = choice;
+        saveUsage();
+        render();
+      });
+    });
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="studbud-intake-title">You've used all ${ANALYSIS_LIMIT} beta analyses</div>
+    <div class="studbud-intake-sub">${value}Upgrade to keep turning assignments into steps.</div>
+    <button id="studbud-upgrade" class="studbud-primary-btn">Upgrade — coming soon</button>
+    ${focusSlot}`;
+  document.getElementById('studbud-upgrade').addEventListener('click', () => {
+    trackEvent('upgrade_click');
+    upgradeStep = 'poll';
+    render();
+  });
+}
+
 function renderIntake(container, focusSlot) {
-  const left = ANALYSIS_LIMIT - (state.analysesUsed || 0);
+  const left = ANALYSIS_LIMIT - (usage.analysesUsed || 0);
 
   if (left <= 0) {
-    container.innerHTML = `
-      <div class="studbud-intake-title">Beta limit reached</div>
-      <div class="studbud-intake-sub">You've used all ${ANALYSIS_LIMIT} beta assignment analyses. Request more and we'll follow up.</div>
-      <button id="studbud-more-access" class="studbud-primary-btn">${accessRequested ? '✓ Requested — thanks!' : 'Request more access'}</button>
-      ${focusSlot}`;
-    const btn = document.getElementById('studbud-more-access');
-    btn.disabled = accessRequested;
-    btn.addEventListener('click', () => {
-      accessRequested = true;
-      recordInterest('parser'); // reuses the existing interest event; the analyzer is now the gated beta feature
-      btn.textContent = '✓ Requested — thanks!';
-      btn.disabled = true;
-    });
+    renderUpgradeWall(container, focusSlot);
     return;
   }
 
@@ -675,11 +841,32 @@ function renderClarify(container, focusSlot) {
   });
 }
 
+// "Step 3 of 9" for ordinary plans; "Question 4 of 11 · step 2 of 4" inside a worksheet question.
+function progressText() {
+  const steps = state.subtasks;
+  const i = state.currentSubtaskIndex;
+  const cur = steps[i];
+  if (cur && cur.gid != null) {
+    const gids = [...new Set(steps.filter((x) => x.gid != null).map((x) => x.gid))];
+    const q = `Question ${gids.indexOf(cur.gid) + 1} of ${gids.length}`;
+    if (cur.kind === 'question') return q;
+    let start = i;
+    let end = i;
+    while (start > 0 && steps[start - 1].gid === cur.gid) start -= 1;
+    while (end < steps.length - 1 && steps[end + 1].gid === cur.gid) end += 1;
+    return `${q} · step ${i - start + 1} of ${end - start + 1}`;
+  }
+  return `Step ${i + 1} of ${steps.length}`;
+}
+
 function stepHeaderHtml(step) {
   const title = (state.taskTitle || state.currentTask || '').slice(0, 60);
+  const group = step.kind !== 'question' && step.group ? `<div class="studbud-group">${escapeHtml(step.group)}</div>` : '';
+  const ask = step.kind !== 'question' && step.ask ? `<div class="studbud-ask">${escapeHtml(step.ask)}</div>` : '';
   return `
     <div class="studbud-current-task">Current Task: ${escapeHtml(title)}</div>
-    <div class="studbud-step-progress">Step ${state.currentSubtaskIndex + 1} of ${state.subtasks.length}</div>`;
+    <div class="studbud-step-progress">${progressText()}</div>
+    ${group}${ask}`;
 }
 
 function planFooterHtml() {
@@ -699,8 +886,31 @@ function wirePlanFooter() {
   });
 }
 
+function renderQuestionStep(container, focusSlot, step, index) {
+  const loading = expandingIndex === index;
+  const body = loading
+    ? `<div class="studbud-loading">Breaking down ${escapeHtml(step.text.split(':')[0])}…</div>`
+    : `<div class="studbud-step-text">${escapeHtml(step.text)}</div>
+       <div class="studbud-step-detail">${expandError ? 'Could not load the steps for this question.' : "Steps for this question aren't loaded yet."}</div>
+       <button id="studbud-expand-btn" class="studbud-primary-btn">${expandError ? 'Try again' : 'Load steps'}</button>`;
+  container.innerHTML = `${stepHeaderHtml(step)}${body}${focusSlot}${planFooterHtml()}`;
+
+  const btn = document.getElementById('studbud-expand-btn');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      startExpand(index);
+      render();
+    });
+  }
+  wirePlanFooter();
+}
+
 function renderStep(container, focusSlot) {
   const step = state.subtasks[state.currentSubtaskIndex];
+  if (step.kind === 'question') {
+    renderQuestionStep(container, focusSlot, step, state.currentSubtaskIndex);
+    return;
+  }
   if (step.kind === 'citation') {
     renderCitationStep(container, focusSlot, step);
     return;
