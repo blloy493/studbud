@@ -5,6 +5,37 @@
 const STATE_KEY = 'studbudState';
 const SETTINGS_KEY = 'studbudSettings';
 
+// Avatar name lives in its own key (not STATE_KEY) so "Reset progress" in the
+// popup, which only removes STATE_KEY, cannot erase it.
+const AVATAR_KEY = 'studbudAvatar';
+const DEFAULT_NAME = 'Hoot';
+const MAX_NAME_LEN = 16;
+const DEFAULT_AVATAR = { name: DEFAULT_NAME, chosen: false }; // chosen = student has answered the naming prompt
+let avatarProfile = { ...DEFAULT_AVATAR };
+
+function cleanName(raw) {
+  const n = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME_LEN);
+  return n || DEFAULT_NAME;
+}
+
+function loadAvatarProfile() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([AVATAR_KEY], (result) => {
+      resolve(result[AVATAR_KEY] ? { ...DEFAULT_AVATAR, ...result[AVATAR_KEY] } : { ...DEFAULT_AVATAR });
+    });
+  });
+}
+
+function saveAvatarProfile() {
+  chrome.storage.local.set({ [AVATAR_KEY]: avatarProfile });
+}
+
+function commitName(raw) {
+  avatarProfile = { name: cleanName(raw), chosen: true };
+  saveAvatarProfile();
+  render();
+}
+
 const IDLE_AVATAR_SRC = chrome.runtime.getURL('idle_evol_1.png');
 const FOCUS_AVATAR_SRC = chrome.runtime.getURL('active_evol_1.png');
 
@@ -36,19 +67,8 @@ const EVOLUTION_STAGES = [
   {
     min: 150,
     label: 'Fledgling',
-    art: `
-      <svg viewBox="0 0 64 64" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-        <ellipse cx="18" cy="36" rx="9" ry="13" fill="#818cf8" stroke="#4338ca" stroke-width="1.5" transform="rotate(-18 18 36)"/>
-        <ellipse cx="46" cy="36" rx="9" ry="13" fill="#818cf8" stroke="#4338ca" stroke-width="1.5" transform="rotate(18 46 36)"/>
-        <path d="M32 50 L26 58 L38 58 Z" fill="#6366f1"/>
-        <circle cx="32" cy="32" r="20" fill="#6366f1" stroke="#4338ca" stroke-width="2"/>
-        <path d="M26 14 L32 4 L36 14 Z" fill="#fbbf24"/>
-        <circle cx="25" cy="29" r="4.5" fill="#ffffff"/>
-        <circle cx="39" cy="29" r="4.5" fill="#ffffff"/>
-        <circle cx="26" cy="30" r="2" fill="#1a1a1a"/>
-        <circle cx="40" cy="30" r="2" fill="#1a1a1a"/>
-        <path d="M28 37 L36 37 L32 42 Z" fill="#fbbf24"/>
-      </svg>`,
+    idle: "idle_evol_3.png",
+    focus: "active_evol_3.png",
   },
 ];
 
@@ -97,6 +117,7 @@ async function init() {
   if (isExcluded) return; // don't inject anything on excluded sites
 
   state = await loadState();
+  avatarProfile = await loadAvatarProfile();
   const storedUsage = await loadUsage();
   usage = storedUsage || { ...DEFAULT_USAGE, analysesUsed: state.analysesUsed || 0 }; // migrate existing installs once
   if (!storedUsage) saveUsage();
@@ -133,6 +154,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       const newSettings = changes[SETTINGS_KEY].newValue || DEFAULT_SETTINGS;
       avatar.classList.toggle('studbud-hidden', !!newSettings.avatarHidden);
     }
+  }
+
+  if (changes[AVATAR_KEY] && changes[AVATAR_KEY].newValue) {
+    avatarProfile = { ...DEFAULT_AVATAR, ...changes[AVATAR_KEY].newValue };
+    if (document.getElementById('studbud-avatar')) render();
   }
 
   if (changes[USAGE_KEY] && changes[USAGE_KEY].newValue) {
@@ -249,7 +275,10 @@ function buildAvatar() {
   avatar.id = 'studbud-avatar';
   avatar.innerHTML = `
     <div id="studbud-avatar-face">${EVOLUTION_STAGES[0].art}</div>
-    <div id="studbud-avatar-xp"></div>
+    <div id="studbud-avatar-meta">
+      <span id="studbud-avatar-name"></span>
+      <div id="studbud-avatar-xp"></div>
+    </div>
     <button id="studbud-avatar-toggle" title="Minimize">–</button>
   `;
   // documentElement, not body: some pages (e.g. Google search results) apply a
@@ -277,6 +306,14 @@ function buildTaskWidget() {
     </div>
     <div id="studbud-task-mini"></div>
     <div id="studbud-task-body">
+      <div id="studbud-name-card" class="studbud-hidden">
+        <div class="studbud-intake-title">Name your study buddy</div>
+        <div class="studbud-intake-sub">You can change it later in the StudBud popup.</div>
+        <input id="studbud-name-input" class="studbud-field-input" type="text" maxlength="${MAX_NAME_LEN}" value="${DEFAULT_NAME}" />
+        <div id="studbud-name-count" class="studbud-note"></div>
+        <button id="studbud-name-save" class="studbud-primary-btn" type="button">Save name</button>
+        <button id="studbud-name-keep" class="studbud-link-btn" type="button">Keep ${DEFAULT_NAME}</button>
+      </div>
       <div id="studbud-subtask-current"></div>
       <div id="studbud-upsell">
         <button id="studbud-upsell-toggle" type="button">
@@ -305,6 +342,21 @@ function buildTaskWidget() {
     </div>
   `;
   document.documentElement.appendChild(widget);
+
+  const nameInput = document.getElementById('studbud-name-input');
+  const nameCount = document.getElementById('studbud-name-count');
+  const updateNameCount = () => {
+    nameCount.textContent = `${MAX_NAME_LEN - nameInput.value.length} characters left`;
+  };
+  nameInput.addEventListener('input', updateNameCount);
+  updateNameCount();
+  // Keep keystrokes from reaching host-page shortcuts (Docs, Canvas, etc.)
+  ['keydown', 'keypress', 'keyup'].forEach((evt) => nameInput.addEventListener(evt, (e) => e.stopPropagation()));
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') commitName(nameInput.value);
+  });
+  document.getElementById('studbud-name-save').addEventListener('click', () => commitName(nameInput.value));
+  document.getElementById('studbud-name-keep').addEventListener('click', () => commitName(DEFAULT_NAME));
 
   document.getElementById('studbud-task-toggle').addEventListener('click', () => {
     state.taskWidgetMinimized = !state.taskWidgetMinimized;
@@ -355,7 +407,7 @@ async function trackEvent(name, elapsedSec) {
 // A breakdown is only built from a pasted assignment. If the text lacks key
 // details the server first asks up to 2 rounds of clarifying questions.
 
-const ANALYSIS_LIMIT = 5;      // beta cap on successful analyses per install. CLIENT-SIDE ONLY: reinstalling resets it (see `usage`).
+const ANALYSIS_LIMIT = 10;      // beta cap on successful analyses per install. CLIENT-SIDE ONLY: reinstalling resets it (see `usage`).
 const MIN_BRIEF_CHARS = 40;    // coarse client-side floor; the model does the real sufficiency check
 const MAX_BRIEF_CHARS = 8000;  // keep in sync with MAX_BRIEF in api/breakdown.js
 
@@ -648,6 +700,8 @@ avatar.title = state.focusSession ? 'Focusing...' : stageConfig.label;
     ? `${state.xp}/${nextThreshold} XP`
     : `${state.xp} XP (max)`;
 
+  renderAvatarName();
+
   if (stageChanged) {
     avatar.classList.add('studbud-evolved');
     setTimeout(() => avatar.classList.remove('studbud-evolved'), 1200);
@@ -655,6 +709,17 @@ avatar.title = state.focusSession ? 'Focusing...' : stageConfig.label;
 
   renderCurrentSubtask();
   renderMini();
+}
+
+// Name label next to the XP text, and the one-time naming card.
+function renderAvatarName() {
+  const nameEl = document.getElementById('studbud-avatar-name');
+  if (nameEl) {
+    nameEl.textContent = avatarProfile.name; // textContent only: the name is user input
+    nameEl.title = avatarProfile.name;
+  }
+  const card = document.getElementById('studbud-name-card');
+  if (card) card.classList.toggle('studbud-hidden', !!avatarProfile.chosen);
 }
 
 function renderCurrentSubtask() {
@@ -720,16 +785,16 @@ function renderUpgradeWall(container, focusSlot) {
 
   if (usage.priceChoice) {
     container.innerHTML = `
-      <div class="studbud-intake-title">Thanks — that helps</div>
-      <div class="studbud-intake-sub">Paid plans aren't live yet. Your answer helps us set the price.</div>
+      <div class="studbud-intake-title">Thanks! — that helps</div>
+      <div class="studbud-intake-sub">Paid plans aren't live... yet! Your answer helps us set a fair price.</div>
       ${focusSlot}`;
     return;
   }
 
   if (upgradeStep === 'poll') {
     container.innerHTML = `
-      <div class="studbud-intake-title">What would be fair per month?</div>
-      <div class="studbud-intake-sub">Paid plans aren't live yet. Your answer helps us price it.</div>
+      <div class="studbud-intake-title">What would you pay per month for StudBud?</div>
+      <div class="studbud-intake-sub">Paid plans aren't live... yet! Your answer helps us set a fair price.</div>
       <div class="studbud-type-row">
         <button class="studbud-type-btn" data-price="3">$3</button>
         <button class="studbud-type-btn" data-price="5">$5</button>
@@ -752,7 +817,7 @@ function renderUpgradeWall(container, focusSlot) {
   container.innerHTML = `
     <div class="studbud-intake-title">You've used all ${ANALYSIS_LIMIT} beta analyses</div>
     <div class="studbud-intake-sub">${value}Upgrade to keep turning assignments into steps.</div>
-    <button id="studbud-upgrade" class="studbud-primary-btn">Upgrade — coming soon</button>
+    <button id="studbud-upgrade" class="studbud-primary-btn">Upgrade — Coming Soon</button>
     ${focusSlot}`;
   document.getElementById('studbud-upgrade').addEventListener('click', () => {
     trackEvent('upgrade_click');

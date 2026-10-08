@@ -8,26 +8,19 @@
     html, body {
       margin: 0;
       padding: 0;
-    }
-
-    /* Chrome paints extension popups on an opaque white canvas, so the area outside the
-       rounded corners can't be transparent. Fill it with the border color instead. */
-    html {
-      background: #e7e5e4;
-    }
-
-    body {
       background: transparent;
     }
 
     .popup {
       box-sizing: border-box;
-      width: 276px;
+      width: 260px;
       padding: 16px;
       font-family: system-ui, sans-serif;
       font-size: 13px;
       color: #1a1a1a;
       background: #e7e5e4;
+      border: #590016 2px solid;
+      border-radius: 12px;
     }
 
     h1 {
@@ -91,11 +84,6 @@
     #save-settings {
       background: #D8B45B;
       color: white;
-
-      #save-settings:hover {
-      color: #FFFFFF;
-      }
-      
     }
     #reset-btn {
       background: #fee2e2;

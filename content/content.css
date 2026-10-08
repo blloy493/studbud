@@ -17,8 +17,13 @@
 #studbud-avatar {
   bottom: 10px;
   left: 10px;
-  width: 140px;
+  /* Width follows the name length (name + XP sit on one row), anchored at left. */
+  box-sizing: border-box;
+  width: auto;
+  min-width: 144px;
+  max-width: 260px;
   min-height: 140px;
+  padding: 0 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -27,15 +32,33 @@
   padding-bottom: 4px;
 }
 
-#studbud-avatar-xp {
-  font-size: 14px;
-  color: #000000;
+#studbud-avatar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
   margin-top: 5px;
-  white-space: nowrap;
-  bottom: 10px;
+  font-size: 14px;
 }
 
-#studbud-avatar.minimized #studbud-avatar-xp {
+#studbud-avatar-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: #590016;
+}
+
+#studbud-avatar-xp {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #000000;
+  white-space: nowrap;
+}
+
+#studbud-avatar.minimized #studbud-avatar-meta {
   display: none;
 }
 
@@ -54,9 +77,13 @@
 }
 
 #studbud-avatar.minimized {
+  box-sizing: content-box;
   width: 28px;
+  min-width: 0;
+  max-width: none;
   height: 28px;
   min-height: 0;
+  padding: 0 0 4px;
 }
 
 #studbud-avatar.studbud-hidden {
@@ -160,7 +187,7 @@
   padding: 6px 8px;
   border: none;
   border-radius: 6px;
-  background: #4f46e5;
+  background: #D8B45B;
   color: white;
   cursor: pointer;
   font-size: 13px;
@@ -285,6 +312,8 @@
 
 #studbud-task-mini-step {
   display: none;
+  color:#1a1a1a;
+  
 }
 
 #studbud-task-widget.minimized #studbud-task-mini-step {
@@ -293,7 +322,7 @@
   min-width: 0; /* lets the flex child shrink so ellipsis works */
   margin: 0 8px;
   font-size: 12px;
-  font-weight: 400;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -302,6 +331,20 @@
 #studbud-task-mini .studbud-focus-timer {
   font-size: 12px;
   margin-top: 2px;
+}
+
+/* ---- One-time naming card ---- */
+
+#studbud-name-card {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #d6d3d1;
+}
+
+#studbud-name-count {
+  text-align: right;
+  margin-top: -2px;
+  margin-bottom: 6px;
 }
 
 /* ---- Current task label ---- */
@@ -490,7 +533,7 @@
 
 .studbud-loading {
   font-size: 13px;
-  color: #4f46e5;
+  color: #590016;
   font-weight: 600;
   text-align: center;
   padding: 16px 0;
