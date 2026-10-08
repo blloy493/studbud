@@ -78,6 +78,7 @@ const FOCUS_BONUS_XP = 5;
 const DEFAULT_STATE = {
   currentTask: null,       // string or null (the pasted assignment text)
   taskTitle: null,         // short AI-generated name for the task (falls back to currentTask)
+  assignmentType: null,    // type returned by the breakdown ('essay', 'problem_set', ...); sent to avatar chat as context
   subtasks: [],            // [{ kind, text, detail, done, ...kind-specific }]; kind is 'do' | 'copy' | 'citation' | 'question' (missing = 'do'); worksheet questions carry gid/group/ask
   clarify: null,           // { round, questions, answers } while the server is asking for missing details, else null
   analysesUsed: 0,         // LEGACY: the beta cap now lives in `usage` (own storage key); this value is only read once to migrate old installs
@@ -279,6 +280,15 @@ function buildAvatar() {
       <span id="studbud-avatar-name"></span>
       <div id="studbud-avatar-xp"></div>
     </div>
+    <div id="studbud-bubble" class="studbud-hidden" title="">
+      <button id="studbud-bubble-close" type="button" aria-label="Close">✕</button>
+      <div class="studbud-bubble-echo studbud-hidden"></div>
+      <div class="studbud-bubble-reply studbud-hidden" role="status" aria-live="polite"></div>
+      <div class="studbud-bubble-inputrow">
+        <input id="studbud-bubble-input" class="studbud-field-input" type="text" maxlength="${AVATAR_CHAT_MAX_LEN}" placeholder="Ask about this step…" aria-label="Ask your study buddy" autocomplete="off" />
+        <div class="studbud-bubble-count studbud-hidden"></div>
+      </div>
+    </div>
     <button id="studbud-avatar-toggle" title="Minimize">–</button>
   `;
   // documentElement, not body: some pages (e.g. Google search results) apply a
@@ -291,6 +301,282 @@ function buildAvatar() {
     saveState();
     render();
   });
+
+  wireBubble();
+}
+
+// ---------- Avatar chat bubble ----------
+// One exchange at a time, anchored above the avatar. Clicking the avatar face opens it.
+// UI-only state (module variables, not saved state), like the intake drafts. The server
+// (api/avatar.js) classifies each message; the client only uses `category` to decide
+// whether the reply fades ('banter') or stays pinned (everything else).
+// Replies are rendered with textContent only: they come from a model.
+
+const AVATAR_ID = 'owl';                 // persona key on the server (PERSONAS in api/avatar.js)
+const AVATAR_CHAT_MAX_LEN = 500;         // keep in sync with MAX_MESSAGE in api/avatar.js
+const AVATAR_CHAT_TIMEOUT_MS = 15000;
+const AVATAR_HISTORY_MAX = 6;            // keep in sync with MAX_HISTORY in api/avatar.js
+const BANTER_FADE_MIN_MS = 6000;         // banter fades after max(6s, words x 0.35s). Tune from beta behavior.
+const BANTER_FADE_MS_PER_WORD = 350;
+const FADE_RESUME_MS = 3000;             // delay after hover/focus ends before a pending fade restarts
+const FADE_ANIM_MS = 400;                // keep in sync with the opacity transition in content.css
+
+const BUBBLE_TEXT = {
+  network: 'Signal lost. Try that again in a second.',
+  timeout: 'That took too long. Try again.',
+  limit: 'Out of messages for today. Back tomorrow.',
+};
+
+const bubble = {
+  open: false,
+  sending: false,
+  limited: false,   // true once the server says the daily cap is reached
+  history: [],      // [{ role: 'user'|'avatar', text }], cleared whenever the step changes
+  last: null,       // { message, category, reply } of the one exchange on display
+};
+let bubbleSeq = 0;           // invalidates stale responses (step change, timeout)
+let bubbleFadeTimer = null;
+let bubbleFadePending = false;
+let lastStepKey = null;
+
+function wireBubble() {
+  const face = document.getElementById('studbud-avatar-face');
+  const box = document.getElementById('studbud-bubble');
+  const input = document.getElementById('studbud-bubble-input');
+
+  face.addEventListener('click', toggleBubble);
+  document.getElementById('studbud-bubble-close').addEventListener('click', closeBubble);
+
+  // Keep keystrokes from reaching host-page shortcuts (Docs, Canvas, etc.)
+  ['keydown', 'keypress', 'keyup'].forEach((evt) => input.addEventListener(evt, (e) => e.stopPropagation()));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      sendAvatarMessage();
+    } else if (e.key === 'Escape') {
+      closeBubble();
+    }
+  });
+  input.addEventListener('input', updateBubbleCount);
+
+  // A pending banter fade pauses while the student hovers the bubble, has the input focused, or is typing.
+  box.addEventListener('mouseenter', pauseBubbleFade);
+  box.addEventListener('mouseleave', resumeBubbleFade);
+  input.addEventListener('focus', pauseBubbleFade);
+  input.addEventListener('blur', resumeBubbleFade);
+}
+
+function toggleBubble() {
+  if (state.avatarMinimized) return;
+  if (bubble.open) closeBubble();
+  else openBubble();
+}
+
+function openBubble() {
+  if (state.avatarMinimized) return;
+  bubble.open = true;
+  bubbleFadePending = false; // a restored reply never auto-fades again
+  clearBubbleFadeTimer();
+  renderBubble();
+  const input = document.getElementById('studbud-bubble-input');
+  if (input && !input.disabled) input.focus();
+}
+
+function closeBubble() {
+  clearBubbleFadeTimer();
+  bubbleFadePending = false;
+  bubble.open = false;
+  renderBubble();
+}
+
+// Called from render() when the current step changes (or the plan is reset / synced from another tab).
+function resetBubbleForNewStep() {
+  bubbleSeq += 1; // drop any in-flight reply
+  bubble.sending = false;
+  bubble.history = [];
+  // A distress message stays on screen until the student closes it.
+  if (bubble.open && bubble.last && bubble.last.category === 'distress') {
+    renderBubble();
+    return;
+  }
+  bubble.last = null;
+  clearBubbleFadeTimer();
+  bubbleFadePending = false;
+  bubble.open = false;
+  renderBubble();
+}
+
+function renderBubble() {
+  const box = document.getElementById('studbud-bubble');
+  const avatar = document.getElementById('studbud-avatar');
+  if (!box || !avatar) return;
+
+  box.classList.remove('studbud-bubble-fading');
+  box.classList.toggle('studbud-hidden', !bubble.open);
+  avatar.classList.toggle('studbud-thinking', bubble.sending);
+  if (!bubble.open) return;
+
+  const echo = box.querySelector('.studbud-bubble-echo');
+  const reply = box.querySelector('.studbud-bubble-reply');
+  const input = document.getElementById('studbud-bubble-input');
+  const last = bubble.last;
+
+  echo.classList.toggle('studbud-hidden', !last);
+  reply.classList.toggle('studbud-hidden', !last);
+  box.classList.toggle('studbud-bubble-serious', !!last && last.category === 'distress');
+
+  if (last) {
+    echo.textContent = `You: ${last.message}`;
+    if (bubble.sending) reply.textContent = 'Thinking…';
+    else setBubbleReply(reply, last.reply, last.category === 'distress');
+  }
+
+  input.disabled = bubble.sending || bubble.limited;
+  input.placeholder = bubble.limited ? 'Back tomorrow' : 'Ask about this step…';
+  updateBubbleCount();
+}
+
+// textContent only. The one exception is the fixed distress message, where the
+// findahelpline.com mention becomes a link built with DOM nodes (never innerHTML).
+function setBubbleReply(el, text, withLink) {
+  el.textContent = '';
+  const marker = 'findahelpline.com';
+  const at = withLink ? text.indexOf(marker) : -1;
+  if (at === -1) {
+    el.textContent = text;
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = 'https://findahelpline.com';
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.textContent = marker;
+  el.append(text.slice(0, at), a, text.slice(at + marker.length));
+}
+
+function updateBubbleCount() {
+  const input = document.getElementById('studbud-bubble-input');
+  const count = document.querySelector('#studbud-bubble .studbud-bubble-count');
+  if (!input || !count) return;
+  const left = AVATAR_CHAT_MAX_LEN - input.value.length;
+  count.textContent = `${left} characters left`;
+  count.classList.toggle('studbud-hidden', left > 100);
+}
+
+function sendAvatarMessage() {
+  const input = document.getElementById('studbud-bubble-input');
+  const message = input.value.trim();
+  if (!message || bubble.sending || bubble.limited) return;
+
+  const seq = ++bubbleSeq;
+  bubble.sending = true;
+  bubble.last = { message, category: null, reply: '' };
+  clearBubbleFadeTimer();
+  bubbleFadePending = false;
+  input.value = '';
+  renderBubble();
+
+  const finish = (outcome) => {
+    if (seq !== bubbleSeq) return; // step changed or timed out meanwhile
+    bubbleSeq += 1;                // any later response for this request is now stale
+    clearTimeout(timeout);
+    bubble.sending = false;
+
+    if (outcome.error) {
+      // Failures are not added to history; the text goes back in the box so the student can retry.
+      bubble.last = { message, category: 'other', reply: outcome.error };
+      if (outcome.limited) bubble.limited = true;
+      else input.value = message;
+      renderBubble();
+      return;
+    }
+
+    bubble.last = { message, category: outcome.category, reply: outcome.reply };
+    bubble.history.push({ role: 'user', text: message }, { role: 'avatar', text: outcome.reply });
+    bubble.history = bubble.history.slice(-AVATAR_HISTORY_MAX);
+    renderBubble();
+    // Only banter fades. Everything else stays pinned until dismissed.
+    if (outcome.category === 'banter') scheduleBubbleFade(outcome.reply);
+    if (!input.disabled) input.focus(); // focus pauses the fade; it resumes when the student clicks back into their work
+  };
+
+  const timeout = setTimeout(() => finish({ error: BUBBLE_TEXT.timeout }), AVATAR_CHAT_TIMEOUT_MS);
+
+  const cur = state.subtasks[state.currentSubtaskIndex];
+  getAnonId().then((userId) => {
+    if (seq !== bubbleSeq) return;
+    const payload = {
+      userId,
+      message,
+      history: bubble.history.slice(-AVATAR_HISTORY_MAX),
+      context: {
+        avatarId: AVATAR_ID,
+        avatarName: avatarProfile.name,
+        assignmentType: state.assignmentType || '',
+        title: state.taskTitle || '',
+        stepTitle: cur ? cur.text : '',
+        stepDetail: cur ? (cur.detail || cur.ask || '') : '',
+        stepIndex: cur ? state.currentSubtaskIndex + 1 : 0,
+        stepTotal: state.subtasks.length,
+      },
+    };
+    try {
+      chrome.runtime.sendMessage({ type: 'AVATAR_CHAT', payload }, (response) => {
+        if (chrome.runtime.lastError || !response) {
+          finish({ error: BUBBLE_TEXT.network });
+        } else if (response.limit) {
+          finish({ error: BUBBLE_TEXT.limit, limited: true });
+        } else if (!response.ok || typeof response.reply !== 'string' || !response.reply) {
+          finish({ error: BUBBLE_TEXT.network });
+        } else {
+          finish({ category: String(response.category || 'other'), reply: response.reply });
+        }
+      });
+    } catch (e) {
+      finish({ error: BUBBLE_TEXT.network }); // e.g. extension was reloaded while this tab stayed open
+    }
+  });
+}
+
+// ---- Banter fade ----
+
+function scheduleBubbleFade(text) {
+  const words = text.trim().split(/\s+/).length;
+  bubbleFadePending = true;
+  startBubbleFadeTimer(Math.max(BANTER_FADE_MIN_MS, words * BANTER_FADE_MS_PER_WORD));
+}
+
+function startBubbleFadeTimer(ms) {
+  clearBubbleFadeTimer();
+  bubbleFadeTimer = setTimeout(fadeOutBubble, ms);
+}
+
+function clearBubbleFadeTimer() {
+  if (bubbleFadeTimer) {
+    clearTimeout(bubbleFadeTimer);
+    bubbleFadeTimer = null;
+  }
+}
+
+function pauseBubbleFade() {
+  clearBubbleFadeTimer();
+  const box = document.getElementById('studbud-bubble');
+  if (box) box.classList.remove('studbud-bubble-fading'); // cancels a fade already underway
+}
+
+function resumeBubbleFade() {
+  if (!bubbleFadePending) return;
+  const input = document.getElementById('studbud-bubble-input');
+  if (input && input.value.trim()) return; // student is mid-message
+  startBubbleFadeTimer(FADE_RESUME_MS);
+}
+
+function fadeOutBubble() {
+  bubbleFadeTimer = null;
+  const box = document.getElementById('studbud-bubble');
+  if (!box || !bubble.open) return;
+  box.classList.add('studbud-bubble-fading');
+  bubbleFadeTimer = setTimeout(closeBubble, FADE_ANIM_MS); // last reply is kept: clicking the avatar restores it
 }
 
 // ---------- Task widget (mid-bottom-right) ----------
@@ -455,6 +741,7 @@ function requestBreakdown(brief, answers, round) {
     if (response.status === 'ready' && Array.isArray(response.steps) && response.steps.length > 0) {
       state.currentTask = brief;
       state.taskTitle = (response.title && String(response.title).trim()) || brief.slice(0, 60);
+      state.assignmentType = (typeof response.type === 'string' && response.type) || null;
       let gid = 0; // worksheet outlines: each 'question' step gets a group id that its micro-steps inherit
       state.subtasks = response.steps.map((st) => toStep(st, st.kind === 'question' ? gid++ : null));
       state.currentSubtaskIndex = 0;
@@ -539,6 +826,7 @@ function resetPlan() {
   state.subtasks = [];
   state.currentSubtaskIndex = 0;
   state.taskTitle = null;
+  state.assignmentType = null;
   state.currentTask = null;
   state.clarify = null;
   state.planStartedAt = null;
@@ -692,7 +980,8 @@ const currentFilename = state.focusSession ? stageConfig.focus : stageConfig.idl
 const avatarSrc = chrome.runtime.getURL(currentFilename);
 
 face.innerHTML = `<img src="${avatarSrc}" alt="Avatar" style="width: 100%; height: 100%; object-fit: contain;" />`;
-avatar.title = state.focusSession ? 'Focusing...' : stageConfig.label;
+avatar.title = (state.focusSession ? 'Focusing...' : stageConfig.label) +
+  (state.avatarMinimized ? '' : ` · click to ask ${avatarProfile.name}`);
 
   const nextThreshold = getNextThreshold(newStage);
   const xpLabel = document.getElementById('studbud-avatar-xp');
@@ -706,6 +995,13 @@ avatar.title = state.focusSession ? 'Focusing...' : stageConfig.label;
     avatar.classList.add('studbud-evolved');
     setTimeout(() => avatar.classList.remove('studbud-evolved'), 1200);
   }
+
+  // Chat bubble: minimizing the avatar dismisses it; any change of current step starts a fresh conversation.
+  if (state.avatarMinimized && bubble.open) closeBubble();
+  const curStep = state.subtasks[state.currentSubtaskIndex];
+  const stepKey = curStep ? `${state.currentSubtaskIndex}:${curStep.text}` : 'none';
+  if (lastStepKey !== null && stepKey !== lastStepKey) resetBubbleForNewStep();
+  lastStepKey = stepKey;
 
   renderCurrentSubtask();
   renderMini();
