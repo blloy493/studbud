@@ -92,4 +92,19 @@ async function handleRecordEvent(event) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request failed with status ${res.status}`);
   }
+
+
+  if (msg.type === 'AVATAR_CHAT') {
+    fetch(`${API_BASE}/api/avatar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(msg.payload),
+    })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        sendResponse({ ok: r.ok, ...data });
+      })
+      .catch(() => sendResponse({ ok: false, error: 'network' }));
+    return true; // keep the channel open for the async response
+  }
 }
