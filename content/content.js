@@ -83,7 +83,6 @@ const DEFAULT_STATE = {
   clarify: null,           // { round, questions, answers } while the server is asking for missing details, else null
   analysesUsed: 0,         // LEGACY: the beta cap now lives in `usage` (own storage key); this value is only read once to migrate old installs
   planStartedAt: null,     // ms timestamp when the current plan was created (for completion-time analytics)
-  finishAnswered: false,   // true once the student answered "Did you finish this assignment?" for the current plan
   currentSubtaskIndex: 0,  // which subtask is currently shown
   xp: 0,
   evolutionStage: 0,       // derived from xp, but stored to detect stage-up transitions
@@ -202,7 +201,10 @@ const DEFAULT_USAGE = {
   analysesUsed: 0,       // successful assignment analyses, compared against ANALYSIS_LIMIT
   completedPlans: 0,     // plans taken through the last step (shown on the upgrade wall)
   limitHit: false,       // true once the wall has been shown (limit_hit event is sent once)
-  priceChoice: null,     // '3' | '5' | '8' | 'none' once the student answered the price question
+  useChoice: null,       // 'yes' | 'no': "would you use StudBud on your next assignment" asked on the limit wall
+  payChoice: null,       // 'yes' | 'maybe' | 'no': "would you pay", asked only after useChoice === 'yes'
+  priceChoice: null,     // 'lt3' | '3' | '5' | '8' once the student named a monthly price (older installs may hold 'none')
+  reuseAnswer: null,     // 'yes' | 'no' if the completion feedback card was answered; the wall then skips its own use question
   feedbackDone: false,         // true once feedback was submitted: never ask again
   feedbackAsks: 0,             // times the feedback card has been shown (max FEEDBACK_MAX_ASKS)
   feedbackLastKey: null,       // context of the latest ask ('plan:<planStartedAt>' | 'limit'); a re-render of the same context is not a new ask
@@ -919,8 +921,8 @@ function buildTaskWidget() {
  
 // ---------- Beta analytics ----------
 // Anonymous counters only (see api/events.js). No assignment text or answers are ever sent.
-// Events: plan_created | step_completed | plan_completed | finish_yes | finish_no |
-//         limit_hit | upgrade_click | price_3 | price_5 | price_8 | price_none
+// Events: plan_created | step_completed | plan_completed | limit_hit | use_yes | use_no | pay_no |
+//         pay_{yes|maybe}_{lt3|3|5|8}   (must match EVENTS in api/events.js)
  
 async function trackEvent(name, elapsedSec) {
   try {
@@ -981,15 +983,17 @@ function mountFeedback(trigger) {
     return;
   }
 
+  // On the limit wall the use / pay questions were already asked, so the card is text-only there.
+  const textOnly = trigger === 'limit_hit';
   slot.innerHTML = `
     <div class="studbud-feedback">
       <div class="studbud-field-label">Quick feedback</div>
-      <div class="studbud-note">Would you use StudBud on your next assignment?</div>
+      ${textOnly ? '' : `<div class="studbud-note">Would you use StudBud on your next assignment?</div>
       <div class="studbud-fb-row">
         <button type="button" class="studbud-type-btn" data-fb="yes">Yes</button>
         <button type="button" class="studbud-type-btn" data-fb="no">No</button>
-      </div>
-      <textarea id="studbud-fb-text" class="studbud-field-input" rows="3" maxlength="${FEEDBACK_MAX_LEN}" placeholder="What should we fix or keep? (optional)"></textarea>
+      </div>`}
+      <textarea id="studbud-fb-text" class="studbud-field-input" rows="3" maxlength="${FEEDBACK_MAX_LEN}" placeholder="${textOnly ? 'What would make StudBud worth paying for? (optional)' : 'What should we fix or keep? (optional)'}"></textarea>
       <div class="studbud-note">Anonymous. Your assignment isn't included. We read every response but can't reply.</div>
       ${fbError ? `<div class="studbud-error">${escapeHtml(fbError)}</div>` : ''}
       <button id="studbud-fb-send" type="button" class="studbud-primary-btn" disabled>Send feedback</button>
@@ -1063,6 +1067,7 @@ async function submitFeedback(trigger, sync) {
       }
       fbSending = false;
       usage.feedbackDone = true;
+      if (fbAnswer) usage.reuseAnswer = fbAnswer; // the limit wall will not ask the same question again
       saveUsage();
       fbThanks = true;
       fbAnswer = null;
@@ -1088,7 +1093,7 @@ function dismissFeedback(key) {
 // A breakdown is only built from a pasted assignment. If the text lacks key
 // details the server first asks up to 2 rounds of clarifying questions.
 
-const ANALYSIS_LIMIT = 10;      // beta cap on successful analyses per install. CLIENT-SIDE ONLY: reinstalling resets it (see `usage`).
+const ANALYSIS_LIMIT = 3;       // beta cap on successful analyses per install. CLIENT-SIDE ONLY: reinstalling resets it (see `usage`).
 const MIN_BRIEF_CHARS = 40;    // coarse client-side floor; the model does the real sufficiency check
 const MAX_BRIEF_CHARS = 8000;  // keep in sync with MAX_BRIEF in api/breakdown.js
 
@@ -1099,7 +1104,6 @@ let clarifyDrafts = [];
 let fieldDraft = { key: '', value: '' };
 let requestInFlight = false;
 let intakeError = '';
-let upgradeStep = 'wall';      // UI only: 'wall' | 'poll' (price question)
 let confirmDiscard = false;
 
 function onSubmitIntake() {
@@ -1145,7 +1149,6 @@ function requestBreakdown(brief, answers, round) {
       usage.analysesUsed = (usage.analysesUsed || 0) + 1;
       saveUsage();
       state.planStartedAt = Date.now();
-      state.finishAnswered = false;
       trackEvent('plan_created');
       intakeDraft = '';
       clarifyDrafts = [];
@@ -1225,7 +1228,6 @@ function resetPlan() {
   state.currentTask = null;
   state.clarify = null;
   state.planStartedAt = null;
-  state.finishAnswered = false;
   confirmDiscard = false;
   intakeError = '';
   fbThanks = false;
@@ -1437,27 +1439,11 @@ function renderCurrentSubtask() {
   } else if (currentSubtaskIndex >= subtasks.length) {
     container.innerHTML = `
       <div class="studbud-step-done">All steps done! 🎉</div>
-      ${state.finishAnswered ? '' : `
-        <div class="studbud-field-label">Did you finish this assignment?</div>
-        <div class="studbud-type-row">
-          <button id="studbud-finish-yes" class="studbud-type-btn">Yes, it's done</button>
-          <button id="studbud-finish-no" class="studbud-type-btn">Not yet</button>
-        </div>`}
-      ${state.finishAnswered ? '<div id="studbud-feedback-slot"></div>' : ''}
+      <div id="studbud-feedback-slot"></div>
       <button id="studbud-new-task" class="studbud-primary-btn">Start a new assignment</button>
       ${focusSlot}`;
     document.getElementById('studbud-new-task').addEventListener('click', resetPlan);
-    [['studbud-finish-yes', 'finish_yes'], ['studbud-finish-no', 'finish_no']].forEach(([id, evt]) => {
-      const btn = document.getElementById(id);
-      if (!btn) return;
-      btn.addEventListener('click', () => {
-        trackEvent(evt);
-        state.finishAnswered = true;
-        saveState();
-        render();
-      });
-    });
-    if (state.finishAnswered) mountFeedback('completion');
+    mountFeedback('completion');
   } else {
     renderStep(container, focusSlot);
   }
@@ -1480,51 +1466,78 @@ function renderUpgradeWall(container, focusSlot) {
     trackEvent('limit_hit');
   }
 
-  if (usage.priceChoice) {
+  // Three questions, each shown only if the earlier answers make it relevant:
+  //   use (yes/no) -> pay (yes/maybe/no, only after "yes") -> price (only after pay yes/maybe).
+  // A use answer already given in the completion feedback card counts, so nobody is asked twice.
+  // Each answer is recorded once, anonymously. The price event carries the pay answer: pay_<yes|maybe>_<price>.
+  const use = usage.useChoice || usage.reuseAnswer;
+  const pay = usage.payChoice;
+  const done = use === 'no' || pay === 'no' || !!usage.priceChoice; // priceChoice also covers answers from older builds
+
+  if (done) {
     container.innerHTML = `
       <div class="studbud-intake-title">Thanks! — that helps</div>
-      <div class="studbud-intake-sub">Paid plans aren't live... yet! Your answer helps us set a fair price.</div>
+      <div class="studbud-intake-sub">Paid plans aren't live... yet! Your answers help us set a fair price.</div>
       <div id="studbud-feedback-slot"></div>
       ${focusSlot}`;
     mountFeedback('limit_hit');
     return;
   }
 
-  if (upgradeStep === 'poll') {
+  const ask = (title, sub, options, onPick) => {
     container.innerHTML = `
-      <div class="studbud-intake-title">What would you pay per month for StudBud?</div>
-      <div class="studbud-intake-sub">Paid plans aren't live... yet! Your answer helps us set a fair price.</div>
+      <div class="studbud-intake-title">${title}</div>
+      ${sub ? `<div class="studbud-intake-sub">${sub}</div>` : ''}
       <div class="studbud-type-row">
-        <button class="studbud-type-btn" data-price="3">$3</button>
-        <button class="studbud-type-btn" data-price="5">$5</button>
-        <button class="studbud-type-btn" data-price="8">$8</button>
-        <button class="studbud-type-btn" data-price="none">Not interested</button>
+        ${options.map(([v, label]) => `<button class="studbud-type-btn" data-v="${v}">${label}</button>`).join('')}
       </div>
       ${focusSlot}`;
     container.querySelectorAll('.studbud-type-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const choice = btn.dataset.price;
-        trackEvent(`price_${choice}`);
-        usage.priceChoice = choice;
-        saveUsage();
-        render();
-      });
+      btn.addEventListener('click', () => onPick(btn.dataset.v));
     });
+  };
+
+  if (!use) {
+    ask(
+      'Would you use StudBud on your next assignment?',
+      `You've used all ${ANALYSIS_LIMIT} beta analyses. ${value}Paid plans aren't live... yet! Your answers help us set a fair price.`,
+      [['yes', 'Yes'], ['no', 'No']],
+      (v) => {
+        usage.useChoice = v;
+        saveUsage();
+        trackEvent(`use_${v}`);
+        render();
+      }
+    );
     return;
   }
 
-  container.innerHTML = `
-    <div class="studbud-intake-title">You've used all ${ANALYSIS_LIMIT} beta analyses</div>
-    <div class="studbud-intake-sub">${value}Upgrade to keep turning assignments into steps.</div>
-    <button id="studbud-upgrade" class="studbud-primary-btn">Upgrade — Coming Soon</button>
-    <div id="studbud-feedback-slot"></div>
-    ${focusSlot}`;
-  document.getElementById('studbud-upgrade').addEventListener('click', () => {
-    trackEvent('upgrade_click');
-    upgradeStep = 'poll';
-    render();
-  });
-  mountFeedback('limit_hit');
+  if (!pay) {
+    ask(
+      'Would you pay for it?',
+      '',
+      [['yes', 'Yes'], ['maybe', 'Maybe, depends on the price'], ['no', 'No']],
+      (v) => {
+        usage.payChoice = v;
+        saveUsage();
+        if (v === 'no') trackEvent('pay_no'); // yes / maybe are recorded together with the price below
+        render();
+      }
+    );
+    return;
+  }
+
+  ask(
+    "What's the most you'd pay per month?",
+    '',
+    [['lt3', 'Under $3'], ['3', '$3'], ['5', '$5'], ['8', '$8 or more']],
+    (v) => {
+      usage.priceChoice = v;
+      saveUsage();
+      trackEvent(`pay_${pay}_${v}`);
+      render();
+    }
+  );
 }
 
 function renderIntake(container, focusSlot) {
