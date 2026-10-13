@@ -203,6 +203,11 @@ const DEFAULT_USAGE = {
   completedPlans: 0,     // plans taken through the last step (shown on the upgrade wall)
   limitHit: false,       // true once the wall has been shown (limit_hit event is sent once)
   priceChoice: null,     // '3' | '5' | '8' | 'none' once the student answered the price question
+  feedbackDone: false,         // true once feedback was submitted: never ask again
+  feedbackAsks: 0,             // times the feedback card has been shown (max FEEDBACK_MAX_ASKS)
+  feedbackLastKey: null,       // context of the latest ask ('plan:<planStartedAt>' | 'limit'); a re-render of the same context is not a new ask
+  feedbackDismissedKey: null,  // context the student dismissed with "Not now"
+  avatarMessages: 0,           // successful avatar chat replies (sent with feedback as context)
 };
 let usage = { ...DEFAULT_USAGE };
 
@@ -284,6 +289,8 @@ function buildAvatar() {
       <button id="studbud-bubble-close" type="button" aria-label="Close">✕</button>
       <div class="studbud-bubble-echo studbud-hidden"></div>
       <div class="studbud-bubble-reply studbud-hidden" role="status" aria-live="polite"></div>
+      <div class="studbud-stuck-area studbud-hidden" role="status" aria-live="polite"></div>
+      <button type="button" class="studbud-stuck-btn studbud-stuck-btn-secondary studbud-stuck-entry studbud-hidden">I'm stuck on this step</button>
       <div class="studbud-bubble-inputrow">
         <input id="studbud-bubble-input" class="studbud-field-input" type="text" maxlength="${AVATAR_CHAT_MAX_LEN}" placeholder="Ask about this step…" aria-label="Ask your study buddy" autocomplete="off" />
         <div class="studbud-bubble-count studbud-hidden"></div>
@@ -320,6 +327,7 @@ const BANTER_FADE_MIN_MS = 6000;         // banter fades after max(6s, words x 0
 const BANTER_FADE_MS_PER_WORD = 350;
 const FADE_RESUME_MS = 3000;             // delay after hover/focus ends before a pending fade restarts
 const FADE_ANIM_MS = 400;                // keep in sync with the opacity transition in content.css
+const BUBBLE_TAIL_OFFSET_PX = 32;        // bubble tail sits this far right of the avatar's centre, in front of the mouth. Tune to the art.
 
 const BUBBLE_TEXT = {
   network: 'Signal lost. Try that again in a second.',
@@ -333,6 +341,7 @@ const bubble = {
   limited: false,   // true once the server says the daily cap is reached
   history: [],      // [{ role: 'user'|'avatar', text }], cleared whenever the step changes
   last: null,       // { message, category, reply } of the one exchange on display
+  stuck: null,      // "I'm stuck" flow: { phase, kind, level, result, history, error, retryable, reported }, cleared whenever the step changes
 };
 let bubbleSeq = 0;           // invalidates stale responses (step change, timeout)
 let bubbleFadeTimer = null;
@@ -346,6 +355,7 @@ function wireBubble() {
 
   face.addEventListener('click', toggleBubble);
   document.getElementById('studbud-bubble-close').addEventListener('click', closeBubble);
+  box.querySelector('.studbud-stuck-entry').addEventListener('click', startStuck);
 
   // Keep keystrokes from reaching host-page shortcuts (Docs, Canvas, etc.)
   ['keydown', 'keypress', 'keyup'].forEach((evt) => input.addEventListener(evt, (e) => e.stopPropagation()));
@@ -394,6 +404,7 @@ function resetBubbleForNewStep() {
   bubbleSeq += 1; // drop any in-flight reply
   bubble.sending = false;
   bubble.history = [];
+  bubble.stuck = null;
   // A distress message stays on screen until the student closes it.
   if (bubble.open && bubble.last && bubble.last.category === 'distress') {
     renderBubble();
@@ -421,9 +432,11 @@ function renderBubble() {
   const input = document.getElementById('studbud-bubble-input');
   const last = bubble.last;
 
-  echo.classList.toggle('studbud-hidden', !last);
-  reply.classList.toggle('studbud-hidden', !last);
-  box.classList.toggle('studbud-bubble-serious', !!last && last.category === 'distress');
+  const stuck = bubble.stuck;
+  echo.classList.toggle('studbud-hidden', !last || !!stuck);
+  reply.classList.toggle('studbud-hidden', !last || !!stuck);
+  box.classList.toggle('studbud-bubble-serious', !stuck && !!last && last.category === 'distress');
+  renderStuck(box);
 
   if (last) {
     echo.textContent = `You: ${last.message}`;
@@ -434,6 +447,11 @@ function renderBubble() {
   input.disabled = bubble.sending || bubble.limited;
   input.placeholder = bubble.limited ? 'Back tomorrow' : 'Ask about this step…';
   updateBubbleCount();
+
+  // Point the tail at the avatar's mouth: avatar centre (its width follows the name length) plus a fixed offset.
+  // The bubble's left edge lines up with the avatar's outer left edge; the tail is 12px wide, so subtract 6 to centre it.
+  const tailX = avatar.offsetWidth / 2 + BUBBLE_TAIL_OFFSET_PX - 6;
+  box.style.setProperty('--tail-x', `${Math.max(16, Math.min(tailX, box.offsetWidth - 28))}px`);
 }
 
 // textContent only. The one exception is the fixed distress message, where the
@@ -468,6 +486,7 @@ function sendAvatarMessage() {
   const message = input.value.trim();
   if (!message || bubble.sending || bubble.limited) return;
 
+  bubble.stuck = null; // a typed message leaves the "I'm stuck" flow
   const seq = ++bubbleSeq;
   bubble.sending = true;
   bubble.last = { message, category: null, reply: '' };
@@ -494,6 +513,8 @@ function sendAvatarMessage() {
     bubble.last = { message, category: outcome.category, reply: outcome.reply };
     bubble.history.push({ role: 'user', text: message }, { role: 'avatar', text: outcome.reply });
     bubble.history = bubble.history.slice(-AVATAR_HISTORY_MAX);
+    usage.avatarMessages = (usage.avatarMessages || 0) + 1;
+    saveUsage();
     renderBubble();
     // Only banter fades. Everything else stays pinned until dismissed.
     if (outcome.category === 'banter') scheduleBubbleFade(outcome.reply);
@@ -536,6 +557,229 @@ function sendAvatarMessage() {
       finish({ error: BUBBLE_TEXT.network }); // e.g. extension was reloaded while this tab stayed open
     }
   });
+}
+
+// ---- "I'm stuck" scaffolded help ----
+// Three levels via api/stuck.js: 1 = plain-words recap + guiding question, 2 = worked example with different
+// values, 3 = smaller sub-steps + a drafted question for the instructor. The student only taps buttons (no free
+// text), so nothing unmoderated reaches the model. State lives in bubble.stuck and resets with the step.
+// Model output is rendered with textContent only. Shares bubbleSeq with avatar chat so stale replies are dropped.
+
+const STUCK_MAX_LEVEL = 3;
+const STUCK_TIMEOUT_MS = 25000;   // worked examples may use a slower model (STUCK_L2_MODEL)
+const STUCK_HISTORY_MAX = 2;      // keep in sync with MAX_HISTORY in api/stuck.js
+const STUCK_KINDS = [
+  { id: 'understand', label: "Don't understand the step" },
+  { id: 'start', label: "Don't know where to start" },
+  { id: 'apply', label: "Can't apply it" },
+];
+const STUCK_TEXT = {
+  network: 'Signal lost. Try again in a second.',
+  timeout: 'That took too long. Try again.',
+  limit: 'Out of help for today. Back tomorrow.',
+};
+
+// Citation and copy steps are deterministic and have nothing to explain. Not offered while a distress message is on screen.
+function stuckEligible() {
+  const cur = state.subtasks[state.currentSubtaskIndex];
+  if (!cur || cur.kind === 'citation' || cur.kind === 'copy') return false;
+  return !(bubble.last && bubble.last.category === 'distress');
+}
+
+function startStuck() {
+  if (!stuckEligible() || bubble.sending) return;
+  clearBubbleFadeTimer();
+  bubbleFadePending = false;
+  bubble.last = null;
+  bubble.stuck = { phase: 'choose', kind: null, level: 1, result: null, history: [], error: '', retryable: false, reported: false };
+  renderBubble();
+}
+
+function endStuck(closeAfter) {
+  bubble.stuck = null;
+  if (closeAfter) closeBubble();
+  else renderBubble();
+}
+
+function stuckSummary(d) {
+  if (typeof d.explain === 'string') return `${d.explain} ${d.question || ''}`.trim();
+  if (typeof d.example === 'string') return d.example;
+  return Array.isArray(d.substeps) ? d.substeps.join(' ') : '';
+}
+
+function validStuckResponse(level, r) {
+  if (level === 1) return typeof r.explain === 'string' && r.explain.length > 0;
+  if (level === 2) return typeof r.example === 'string' && r.example.length > 0;
+  return Array.isArray(r.substeps) && r.substeps.length >= 2;
+}
+
+function requestStuck(level, kind) {
+  const s = bubble.stuck;
+  const cur = state.subtasks[state.currentSubtaskIndex];
+  if (!s || !cur || bubble.sending) return;
+
+  const seq = ++bubbleSeq;
+  bubble.sending = true;
+  s.phase = 'loading';
+  s.level = level;
+  s.kind = kind;
+  s.error = '';
+  renderBubble();
+
+  const finish = (outcome) => {
+    if (seq !== bubbleSeq) return; // step changed, student typed a message, or timed out meanwhile
+    bubbleSeq += 1;
+    clearTimeout(timeout);
+    bubble.sending = false;
+
+    if (outcome.error) {
+      s.phase = 'error';
+      s.error = outcome.error;
+      s.retryable = !outcome.limited;
+    } else {
+      s.phase = 'result';
+      s.result = outcome.data;
+      s.reported = false;
+      s.history.push({ level, text: stuckSummary(outcome.data) });
+      s.history = s.history.slice(-STUCK_HISTORY_MAX);
+    }
+    renderBubble();
+  };
+
+  const timeout = setTimeout(() => finish({ error: STUCK_TEXT.timeout }), STUCK_TIMEOUT_MS);
+
+  getAnonId().then((userId) => {
+    if (seq !== bubbleSeq) return;
+    const payload = {
+      userId,
+      brief: state.currentTask || '',
+      type: state.assignmentType || 'other',
+      level,
+      stuckKind: kind,
+      step: { title: cur.text, detail: cur.detail || '', ask: cur.ask || '', group: cur.group || '' },
+      history: s.history.slice(-STUCK_HISTORY_MAX),
+    };
+    try {
+      chrome.runtime.sendMessage({ type: 'STUCK_HELP', payload }, (response) => {
+        if (chrome.runtime.lastError || !response) {
+          finish({ error: STUCK_TEXT.network });
+        } else if (response.limit) {
+          finish({ error: STUCK_TEXT.limit, limited: true });
+        } else if (!response.ok || !validStuckResponse(level, response)) {
+          finish({ error: STUCK_TEXT.network });
+        } else {
+          finish({ data: response });
+        }
+      });
+    } catch (e) {
+      finish({ error: STUCK_TEXT.network }); // e.g. extension was reloaded while this tab stayed open
+    }
+  });
+}
+
+// "This example looks wrong": anonymous counter only (level + assignment type), nothing about the content.
+function reportStuck(s) {
+  if (s.reported) return;
+  s.reported = true;
+  renderBubble();
+  getAnonId().then((userId) => {
+    try {
+      chrome.runtime.sendMessage(
+        { type: 'STUCK_HELP', payload: { userId, report: true, level: s.level, type: state.assignmentType || 'other' } },
+        () => { void chrome.runtime.lastError; }
+      );
+    } catch (e) {
+      /* ignore */
+    }
+  });
+}
+
+function stuckEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text) e.textContent = text;
+  return e;
+}
+
+function stuckButton(cls, label, onClick) {
+  const b = stuckEl('button', cls, label);
+  b.type = 'button';
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function renderStuck(box) {
+  const area = box.querySelector('.studbud-stuck-area');
+  const entry = box.querySelector('.studbud-stuck-entry');
+  const s = bubble.stuck;
+  entry.classList.toggle('studbud-hidden', !!s || !stuckEligible());
+  area.classList.toggle('studbud-hidden', !s);
+  area.textContent = '';
+  if (!s) return;
+
+  if (s.phase === 'choose') {
+    area.append(stuckEl('div', 'studbud-stuck-label', 'What are you stuck on?'));
+    const row = stuckEl('div', 'studbud-type-row studbud-stuck-chips');
+    STUCK_KINDS.forEach((k) => row.append(stuckButton('studbud-type-btn', k.label, () => requestStuck(1, k.id))));
+    area.append(row, stuckButton('studbud-link-btn', 'Cancel', () => endStuck(false)));
+    return;
+  }
+
+  if (s.phase === 'loading') {
+    area.append(stuckEl('div', 'studbud-stuck-progress', `Help ${s.level} of ${STUCK_MAX_LEVEL}`));
+    area.append(stuckEl('div', 'studbud-stuck-label', 'Thinking…'));
+    return;
+  }
+
+  if (s.phase === 'error') {
+    area.append(stuckEl('div', 'studbud-error', s.error));
+    if (s.retryable) area.append(stuckButton('studbud-stuck-btn studbud-stuck-btn-primary', 'Try again', () => requestStuck(s.level, s.kind)));
+    area.append(stuckButton('studbud-link-btn', 'Cancel', () => endStuck(false)));
+    return;
+  }
+
+  // phase === 'result'
+  const d = s.result;
+  area.append(stuckEl('div', 'studbud-stuck-progress', `Help ${s.level} of ${STUCK_MAX_LEVEL}`));
+  const body = stuckEl('div', 'studbud-bubble-reply studbud-bubble-long');
+
+  if (s.level === 1) {
+    body.append(stuckEl('div', 'studbud-stuck-label', 'The step, in plain words'));
+    body.append(stuckEl('div', '', d.explain));
+    if (d.question) body.append(stuckEl('div', 'studbud-stuck-question', d.question));
+  } else if (s.level === 2) {
+    body.append(stuckEl('div', 'studbud-stuck-label', 'A different example'));
+    body.append(stuckEl('div', 'studbud-stuck-example', d.example));
+    body.append(stuckEl('div', 'studbud-note', 'Now go back to your own step and try the same method.'));
+  } else {
+    body.append(stuckEl('div', 'studbud-stuck-label', 'Smaller steps'));
+    const ol = stuckEl('ol', 'studbud-stuck-substeps');
+    d.substeps.forEach((t) => ol.append(stuckEl('li', '', t)));
+    body.append(ol);
+    if (d.draft) {
+      body.append(stuckEl('div', 'studbud-stuck-label', 'Still stuck? Ask your instructor'));
+      body.append(stuckEl('div', 'studbud-copy-box studbud-stuck-draft', d.draft));
+      const copyBtn = stuckButton('studbud-secondary-btn', 'Copy question', () => {
+        flashCopyResult(copyBtn, copyRich(escapeHtml(d.draft), d.draft), 'Copy question');
+      });
+      body.append(copyBtn);
+    }
+  }
+  if (d.quip) body.append(stuckEl('div', 'studbud-stuck-quip', d.quip));
+  area.append(body);
+
+  if (s.level === 2) {
+    const report = stuckButton('studbud-stuck-report', s.reported ? 'Thanks, noted.' : 'This example looks wrong', () => reportStuck(s));
+    report.disabled = s.reported;
+    area.append(report);
+  }
+
+  const actions = stuckEl('div', 'studbud-stuck-actions');
+  actions.append(stuckButton('studbud-stuck-btn studbud-stuck-btn-primary', 'Got it', () => endStuck(true)));
+  if (s.level < STUCK_MAX_LEVEL) {
+    actions.append(stuckButton('studbud-stuck-btn studbud-stuck-btn-secondary', 'Still stuck', () => requestStuck(s.level + 1, s.kind)));
+  }
+  area.append(actions);
 }
 
 // ---- Banter fade ----
@@ -689,6 +933,157 @@ async function trackEvent(name, elapsedSec) {
   }
 }
 
+// ---------- Feedback card ----------
+// One-time anonymous survey: "would you use this again?" (yes/no) + optional free text. Shown inline (never an
+// overlay): under the finish question when a plan is completed, or on the beta-limit wall as a fallback.
+// A card counts as one "ask" the first time it is shown for a context; it is asked at most FEEDBACK_MAX_ASKS
+// times in total and never again after a submit. Counters live in `usage`, so "Reset progress" can't re-trigger it.
+
+const FEEDBACK_MAX_ASKS = 2;
+const FEEDBACK_MAX_LEN = 500; // keep in sync with MAX_TEXT in api/feedback.js
+
+// UI-only drafts (module variables) so typing survives re-renders.
+let fbAnswer = null; // 'yes' | 'no' | null
+let fbText = '';
+let fbError = '';
+let fbSending = false;
+let fbThanks = false;
+
+function feedbackKey(trigger) {
+  return trigger === 'limit_hit' ? 'limit' : `plan:${state.planStartedAt || 0}`;
+}
+
+// Decides whether the card shows for this context, and registers the ask the first time it does.
+function shouldShowFeedback(key) {
+  if (usage.feedbackDone) return false;
+  if (usage.feedbackDismissedKey === key) return false;
+  if (usage.feedbackLastKey === key) return true; // already counted; stays visible until sent or dismissed
+  if ((usage.feedbackAsks || 0) >= FEEDBACK_MAX_ASKS) return false;
+  usage.feedbackAsks = (usage.feedbackAsks || 0) + 1;
+  usage.feedbackLastKey = key;
+  saveUsage();
+  return true;
+}
+
+// Fills #studbud-feedback-slot (present in the completed-plan view and the limit wall).
+// trigger: 'completion' | 'limit_hit'
+function mountFeedback(trigger) {
+  const slot = document.getElementById('studbud-feedback-slot');
+  if (!slot) return;
+
+  if (fbThanks) {
+    slot.innerHTML = '<div class="studbud-upsell-thanks">✓ Thanks, that helps.</div>';
+    return;
+  }
+  const key = feedbackKey(trigger);
+  if (!shouldShowFeedback(key)) {
+    slot.innerHTML = '';
+    return;
+  }
+
+  slot.innerHTML = `
+    <div class="studbud-feedback">
+      <div class="studbud-field-label">Quick feedback</div>
+      <div class="studbud-note">Would you use StudBud on your next assignment?</div>
+      <div class="studbud-fb-row">
+        <button type="button" class="studbud-type-btn" data-fb="yes">Yes</button>
+        <button type="button" class="studbud-type-btn" data-fb="no">No</button>
+      </div>
+      <textarea id="studbud-fb-text" class="studbud-field-input" rows="3" maxlength="${FEEDBACK_MAX_LEN}" placeholder="What should we fix or keep? (optional)"></textarea>
+      <div class="studbud-note">Anonymous. Your assignment isn't included. We read every response but can't reply.</div>
+      ${fbError ? `<div class="studbud-error">${escapeHtml(fbError)}</div>` : ''}
+      <button id="studbud-fb-send" type="button" class="studbud-primary-btn" disabled>Send feedback</button>
+      <button id="studbud-fb-skip" type="button" class="studbud-link-btn">Not now</button>
+    </div>`;
+
+  const textEl = document.getElementById('studbud-fb-text');
+  const send = document.getElementById('studbud-fb-send');
+  textEl.value = fbText;
+
+  const sync = () => {
+    slot.querySelectorAll('[data-fb]').forEach((b) => b.classList.toggle('studbud-fb-selected', b.dataset.fb === fbAnswer));
+    send.disabled = fbSending || (!fbAnswer && !fbText.trim());
+    send.textContent = fbSending ? 'Sending…' : 'Send feedback';
+  };
+
+  slot.querySelectorAll('[data-fb]').forEach((b) => {
+    b.addEventListener('click', () => {
+      fbAnswer = fbAnswer === b.dataset.fb ? null : b.dataset.fb;
+      sync();
+    });
+  });
+  textEl.addEventListener('input', () => {
+    fbText = textEl.value;
+    sync();
+  });
+  // Keep keystrokes from reaching host-page shortcuts (Docs, Canvas, etc.)
+  ['keydown', 'keypress', 'keyup'].forEach((evt) => textEl.addEventListener(evt, (e) => e.stopPropagation()));
+  send.addEventListener('click', () => submitFeedback(trigger, sync));
+  document.getElementById('studbud-fb-skip').addEventListener('click', () => dismissFeedback(key));
+  sync();
+}
+
+async function submitFeedback(trigger, sync) {
+  const text = fbText.trim();
+  if (fbSending || (!fbAnswer && !text)) return;
+  fbSending = true;
+  fbError = '';
+  sync();
+
+  let anonId = null;
+  try {
+    anonId = await getAnonId();
+  } catch (e) {
+    /* server rejects a missing id; the student sees the retry message */
+  }
+  const payload = {
+    anonId,
+    trigger,
+    reuse: fbAnswer,
+    text,
+    assignmentType: state.assignmentType || null,
+    stepsTotal: state.subtasks.length,
+    stepsCompleted: state.subtasks.filter((s) => s.done).length,
+    plansCompleted: usage.completedPlans || 0,
+    analysesUsed: usage.analysesUsed || 0,
+    avatarMessages: usage.avatarMessages || 0,
+    asks: usage.feedbackAsks || 0,
+  };
+
+  const fail = () => {
+    fbSending = false;
+    fbError = "Couldn't send. Try again.";
+    mountFeedback(trigger); // drafts are kept
+  };
+  try {
+    chrome.runtime.sendMessage({ type: 'SUBMIT_FEEDBACK', payload }, (response) => {
+      if (chrome.runtime.lastError || !response || !response.ok) {
+        fail();
+        return;
+      }
+      fbSending = false;
+      usage.feedbackDone = true;
+      saveUsage();
+      fbThanks = true;
+      fbAnswer = null;
+      fbText = '';
+      mountFeedback(trigger);
+    });
+  } catch (e) {
+    fail(); // e.g. extension was reloaded while this tab stayed open
+  }
+}
+
+function dismissFeedback(key) {
+  usage.feedbackDismissedKey = key;
+  saveUsage();
+  fbAnswer = null;
+  fbText = '';
+  fbError = '';
+  const slot = document.getElementById('studbud-feedback-slot');
+  if (slot) slot.innerHTML = '';
+}
+
 // ---------- Assignment intake (required) ----------
 // A breakdown is only built from a pasted assignment. If the text lacks key
 // details the server first asks up to 2 rounds of clarifying questions.
@@ -833,6 +1228,10 @@ function resetPlan() {
   state.finishAnswered = false;
   confirmDiscard = false;
   intakeError = '';
+  fbThanks = false;
+  fbAnswer = null;
+  fbText = '';
+  fbError = '';
   saveState();
   render();
 }
@@ -1044,6 +1443,7 @@ function renderCurrentSubtask() {
           <button id="studbud-finish-yes" class="studbud-type-btn">Yes, it's done</button>
           <button id="studbud-finish-no" class="studbud-type-btn">Not yet</button>
         </div>`}
+      ${state.finishAnswered ? '<div id="studbud-feedback-slot"></div>' : ''}
       <button id="studbud-new-task" class="studbud-primary-btn">Start a new assignment</button>
       ${focusSlot}`;
     document.getElementById('studbud-new-task').addEventListener('click', resetPlan);
@@ -1057,6 +1457,7 @@ function renderCurrentSubtask() {
         render();
       });
     });
+    if (state.finishAnswered) mountFeedback('completion');
   } else {
     renderStep(container, focusSlot);
   }
@@ -1083,7 +1484,9 @@ function renderUpgradeWall(container, focusSlot) {
     container.innerHTML = `
       <div class="studbud-intake-title">Thanks! — that helps</div>
       <div class="studbud-intake-sub">Paid plans aren't live... yet! Your answer helps us set a fair price.</div>
+      <div id="studbud-feedback-slot"></div>
       ${focusSlot}`;
+    mountFeedback('limit_hit');
     return;
   }
 
@@ -1114,12 +1517,14 @@ function renderUpgradeWall(container, focusSlot) {
     <div class="studbud-intake-title">You've used all ${ANALYSIS_LIMIT} beta analyses</div>
     <div class="studbud-intake-sub">${value}Upgrade to keep turning assignments into steps.</div>
     <button id="studbud-upgrade" class="studbud-primary-btn">Upgrade — Coming Soon</button>
+    <div id="studbud-feedback-slot"></div>
     ${focusSlot}`;
   document.getElementById('studbud-upgrade').addEventListener('click', () => {
     trackEvent('upgrade_click');
     upgradeStep = 'poll';
     render();
   });
+  mountFeedback('limit_hit');
 }
 
 function renderIntake(container, focusSlot) {

@@ -27,7 +27,7 @@ const MAX_HISTORY_TEXT = 500;
 const MAX_REPLY = 600;
 const DAILY_CAP = 20; // messages per userId per UTC day. A guess: tune from beta data.
 
-const CATEGORIES = ['step_help', 'answer_request', 'stuck_frustrated', 'banter', 'distress', 'other'];
+const CATEGORIES = ['step_help', 'check_in', 'answer_request', 'stuck_frustrated', 'banter', 'distress', 'other'];
 
 // Vetted, hardcoded. No model-written text ever reaches a student on this path.
 const DISTRESS_REPLY =
@@ -69,8 +69,15 @@ function buildSystemPrompt(ctx) {
   return (
     `You are ${name}, ${persona.species}, a sarcastic, dry-witted study buddy living on a student's screen. ${persona.flavor}\n` +
     'Return ONE JSON object and nothing else: {"category":"...","reply":"..."}.\n' +
-    'Write "category" first. It is one of: step_help, answer_request, stuck_frustrated, banter, distress, other.\n' +
+    'Write "category" first. It is one of: step_help, check_in, answer_request, stuck_frustrated, banter, distress, other.\n' +
     '- step_help: the student asks what the step means or how to approach it. Explain what is being asked and the approach to take.\n' +
+    '- check_in: the student shares their own work, approach, or answer and asks whether it is right or on track. ' +
+    'Compare it only against what the current step asks. Say whether the approach and requirements match ' +
+    '(addresses the question, specific enough, anything missing). Name one thing that works and, if relevant, one thing to check. ' +
+    'Never declare a final answer, calculation, or fact correct or incorrect: say how the student can verify it themselves ' +
+    '(re-derive it, substitute it back, check the source). If the message does not include their work, ask them to paste the relevant part. ' +
+    'If you cannot tell whether it is on track, say so. Praise only what is specifically true. Do not rewrite or improve their work for them. ' +
+    'At most light humor, never about the quality of their work.\n' +
     '- answer_request: the student wants you to give the answer or write it for them. Refuse in character, then point to the approach for this step.\n' +
     '- stuck_frustrated: the student is venting or stalling. One dry line, then shrink the task to one tiny next action.\n' +
     '- banter: off-topic or playful. Answer briefly with a joke, then steer back to the step.\n' +

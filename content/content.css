@@ -704,7 +704,7 @@
   content: '';
   position: absolute;
   bottom: -8px;
-  left: 28px;
+  left: var(--tail-x, 70px); /* set in renderBubble() to sit in front of the avatar's mouth */
   width: 12px;
   height: 12px;
   background: #ffffff;
@@ -722,8 +722,8 @@
 
 #studbud-bubble-close {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 8px;
+  right: 10px;
   width: 18px;
   height: 18px;
   display: flex;
@@ -732,7 +732,7 @@
   padding: 0;
   border: none;
   background: none;
-  color: #78716c;
+  color: #1a1a1a;
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
@@ -790,4 +790,157 @@
   #studbud-bubble {
     transition: none;
   }
+}
+
+
+/* ---- Feedback card ---- */
+
+.studbud-feedback {
+  margin: 4px 0 10px;
+  padding-top: 8px;
+  border-top: 1px solid #d6d3d1;
+}
+
+.studbud-fb-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.studbud-fb-row .studbud-type-btn {
+  flex: 1;
+  width: auto;
+  text-align: center;
+}
+
+.studbud-type-btn.studbud-fb-selected,
+.studbud-type-btn.studbud-fb-selected:hover {
+  background: #590016;
+  border-color: #590016;
+  color: #ffffff;
+}
+
+
+/* ---- "I'm stuck" help (rendered inside the avatar bubble) ---- */
+
+/* Examples and sub-step lists are longer than a chat reply: let the reply area grow. */
+.studbud-bubble-reply.studbud-bubble-long {
+  max-height: clamp(160px, calc(100vh - 300px), 340px);
+}
+
+.studbud-stuck-progress {
+  padding-right: 18px; /* clears the close button */
+  font-size: 11px;
+  color: #78716c;
+}
+
+.studbud-stuck-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #590016;
+  margin: 8px 0 2px;
+  line-height: 1.3;
+}
+
+.studbud-stuck-label:first-child {
+  margin-top: 0;
+}
+
+/* Worked example: preserves the line breaks the model uses for each step */
+.studbud-stuck-example {
+  white-space: pre-wrap;
+}
+
+.studbud-stuck-question {
+  margin-top: 6px;
+  font-weight: 600;
+  color: #590016;
+}
+
+.studbud-stuck-substeps {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.studbud-stuck-substeps li {
+  margin-bottom: 4px;
+}
+
+/* Reuses .studbud-copy-box for the instructor question; this only adds spacing */
+.studbud-stuck-draft {
+  margin-top: 4px;
+}
+
+.studbud-stuck-quip {
+  margin-top: 6px;
+  font-size: 11px;
+  font-style: italic;
+  color: #78716c;
+}
+
+/* Chip choices (reuses .studbud-type-row / .studbud-type-btn) */
+.studbud-stuck-chips {
+  margin-bottom: 0;
+}
+
+.studbud-stuck-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.studbud-stuck-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+}
+
+/* "Got it": same maroon as the Next Step button */
+.studbud-stuck-btn-primary {
+  border: none;
+  background: #590011;
+  color: #ffffff;
+}
+
+/* "Still stuck": outlined */
+.studbud-stuck-btn-secondary {
+  border: 1px solid #590016;
+  background: #ffffff;
+  color: #590016;
+}
+
+.studbud-stuck-btn-secondary:hover {
+  background: #e7e5e4;
+}
+
+.studbud-stuck-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* "This looks wrong" report link under a worked example */
+.studbud-stuck-report {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #78716c;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Entry button under the bubble's reply area. flex: none keeps it from stretching in the column layout. */
+.studbud-stuck-entry {
+  flex: none;
+  width: 100%;
+}
+
+.studbud-stuck-entry.studbud-hidden {
+  display: none;
 }
