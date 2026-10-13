@@ -205,6 +205,7 @@ const DEFAULT_USAGE = {
   payChoice: null,       // 'yes' | 'maybe' | 'no': "would you pay", asked only after useChoice === 'yes'
   priceChoice: null,     // 'lt3' | '3' | '5' | '8' once the student named a monthly price (older installs may hold 'none')
   reuseAnswer: null,     // 'yes' | 'no' if the completion feedback card was answered; the wall then skips its own use question
+  waitlistJoined: false, // true once the student submitted an email for the unlimited-access waitlist (the email itself is never kept here)
   feedbackDone: false,         // true once feedback was submitted: never ask again
   feedbackAsks: 0,             // times the feedback card has been shown (max FEEDBACK_MAX_ASKS)
   feedbackLastKey: null,       // context of the latest ask ('plan:<planStartedAt>' | 'limit'); a re-render of the same context is not a new ask
@@ -922,7 +923,7 @@ function buildTaskWidget() {
 // ---------- Beta analytics ----------
 // Anonymous counters only (see api/events.js). No assignment text or answers are ever sent.
 // Events: plan_created | step_completed | plan_completed | limit_hit | use_yes | use_no | pay_no |
-//         pay_{yes|maybe}_{lt3|3|5|8}   (must match EVENTS in api/events.js)
+//         pay_{yes|maybe}_{lt3|3|5|8} | waitlist_join   (must match EVENTS in api/events.js)
  
 async function trackEvent(name, elapsedSec) {
   try {
@@ -949,6 +950,7 @@ let fbAnswer = null; // 'yes' | 'no' | null
 let fbText = '';
 let fbError = '';
 let fbSending = false;
+let waitlistDraft = ''; // email typed but not yet submitted; survives re-renders
 let fbThanks = false;
 
 function feedbackKey(trigger) {
@@ -993,8 +995,8 @@ function mountFeedback(trigger) {
         <button type="button" class="studbud-type-btn" data-fb="yes">Yes</button>
         <button type="button" class="studbud-type-btn" data-fb="no">No</button>
       </div>`}
-      <textarea id="studbud-fb-text" class="studbud-field-input" rows="3" maxlength="${FEEDBACK_MAX_LEN}" placeholder="${textOnly ? 'What would make StudBud worth paying for? (optional)' : 'What should we fix or keep? (optional)'}"></textarea>
-      <div class="studbud-note">Anonymous. Your assignment isn't included. We read every response but can't reply.</div>
+      <textarea id="studbud-fb-text" class="studbud-field-input" rows="3" maxlength="${FEEDBACK_MAX_LEN}" placeholder="${textOnly ? 'What would make StudBud better? (optional)' : 'What should we fix or keep? (optional)'}"></textarea>
+      <div class="studbud-note">Responses are completely anonymous. Thank you for your time!</div>
       ${fbError ? `<div class="studbud-error">${escapeHtml(fbError)}</div>` : ''}
       <button id="studbud-fb-send" type="button" class="studbud-primary-btn" disabled>Send feedback</button>
       <button id="studbud-fb-skip" type="button" class="studbud-link-btn">Not now</button>
@@ -1454,11 +1456,83 @@ function intakeErrorHtml() {
   return intakeError ? `<div class="studbud-error">${escapeHtml(intakeError)}</div>` : '';
 }
 
+// ---- Waitlist (unlimited access) ----
+// The email goes only to /api/waitlist, on its own: no install id, no usage data. Only a "joined" flag and an
+// anonymous waitlist_join event are kept on this side, so the join rate can be measured without linking the two.
+
+const WAITLIST_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function waitlistHtml() {
+  if (usage.waitlistJoined) {
+    return `<div class="studbud-upsell-thanks">You're on the list. We'll email you when unlimited access launches.</div>`;
+  }
+  return `
+    <div class="studbud-waitlist">
+      <input id="studbud-waitlist-email" class="studbud-field-input" type="email" inputmode="email" autocomplete="email" maxlength="254" placeholder="you@school.edu">
+      <div id="studbud-waitlist-error" class="studbud-error studbud-hidden"></div>
+      <button id="studbud-waitlist-submit" class="studbud-primary-btn">Join the waitlist</button>
+      <div class="studbud-note">We'll only email you when unlimited access launches.</div>
+    </div>`;
+}
+
+function wireWaitlist(container) {
+  const input = container.querySelector('#studbud-waitlist-email');
+  const btn = container.querySelector('#studbud-waitlist-submit');
+  const err = container.querySelector('#studbud-waitlist-error');
+  if (!input || !btn || !err) return; // already joined
+  input.value = waitlistDraft; // set as a property, not an HTML attribute: escapeHtml() does not escape quotes
+
+  // Typing must not trigger the host page's keyboard shortcuts.
+  ['keydown', 'keypress', 'keyup'].forEach((evt) => input.addEventListener(evt, (e) => e.stopPropagation()));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      btn.click();
+    }
+  });
+  input.addEventListener('input', () => {
+    waitlistDraft = input.value;
+    err.classList.add('studbud-hidden');
+  });
+
+  const showError = (msg) => {
+    err.textContent = msg;
+    err.classList.remove('studbud-hidden');
+    btn.disabled = false;
+    btn.textContent = 'Join the waitlist';
+  };
+
+  btn.addEventListener('click', () => {
+    const email = input.value.trim();
+    if (email.length > 254 || !WAITLIST_EMAIL_RE.test(email)) {
+      showError('Enter a valid email address.');
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Joining…';
+    try {
+      chrome.runtime.sendMessage({ type: 'WAITLIST_JOIN', payload: { email } }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.ok) {
+          showError(response && response.limit ? 'Too many attempts. Try again tomorrow.' : "Couldn't join. Try again in a second.");
+          return;
+        }
+        waitlistDraft = '';
+        usage.waitlistJoined = true;
+        saveUsage();
+        trackEvent('waitlist_join');
+        render();
+      });
+    } catch (e) {
+      showError("Couldn't join. Try again in a second."); // e.g. extension was reloaded while this tab stayed open
+    }
+  });
+}
+
 // Shown instead of the intake form once the beta cap is used. Never shown mid-plan.
 // There is no billing yet: "Upgrade" is a demand test, so the copy says so.
 function renderUpgradeWall(container, focusSlot) {
   const n = usage.completedPlans || 0;
-  const value = n > 0 ? `You've completed ${n} assignment${n === 1 ? '' : 's'} with StudBud. ` : '';
+  const value = n > 0 ? `and completed ${n} assignment${n === 1 ? '' : 's'} with StudBud! ` : '';
 
   if (!usage.limitHit) {
     usage.limitHit = true; // send limit_hit once per install
@@ -1475,11 +1549,16 @@ function renderUpgradeWall(container, focusSlot) {
   const done = use === 'no' || pay === 'no' || !!usage.priceChoice; // priceChoice also covers answers from older builds
 
   if (done) {
+    // The waitlist is offered only to students who said yes/maybe to paying (they have a priceChoice).
+    // 'none' is what older builds stored for "not interested".
+    const interested = !!usage.priceChoice && usage.priceChoice !== 'none';
     container.innerHTML = `
-      <div class="studbud-intake-title">Thanks! — that helps</div>
-      <div class="studbud-intake-sub">Paid plans aren't live... yet! Your answers help us set a fair price.</div>
+      <div class="studbud-intake-title">Thanks — You're helping us make StudBud better!</div>
+      <div class="studbud-intake-sub">Unlimited access isn't available... yet.${interested ? ' Join the waitlist to be the first to know!' : ''}</div>
+      ${interested ? waitlistHtml() : ''}
       <div id="studbud-feedback-slot"></div>
       ${focusSlot}`;
+    if (interested) wireWaitlist(container);
     mountFeedback('limit_hit');
     return;
   }
@@ -1500,7 +1579,7 @@ function renderUpgradeWall(container, focusSlot) {
   if (!use) {
     ask(
       'Would you use StudBud on your next assignment?',
-      `You've used all ${ANALYSIS_LIMIT} beta analyses. ${value}Paid plans aren't live... yet! Your answers help us set a fair price.`,
+      `You've used all ${ANALYSIS_LIMIT} beta analyses ${value}Unlimited access isn't available... yet! Your answers help us improve StudBud!`,
       [['yes', 'Yes'], ['no', 'No']],
       (v) => {
         usage.useChoice = v;
@@ -1514,7 +1593,7 @@ function renderUpgradeWall(container, focusSlot) {
 
   if (!pay) {
     ask(
-      'Would you pay for it?',
+      'Would you pay for unlimited assignment upload & breakdown and unlimited StudBud chat help?',
       '',
       [['yes', 'Yes'], ['maybe', 'Maybe, depends on the price'], ['no', 'No']],
       (v) => {
@@ -1528,7 +1607,7 @@ function renderUpgradeWall(container, focusSlot) {
   }
 
   ask(
-    "What's the most you'd pay per month?",
+    "What would you pay per month?",
     '',
     [['lt3', 'Under $3'], ['3', '$3'], ['5', '$5'], ['8', '$8 or more']],
     (v) => {

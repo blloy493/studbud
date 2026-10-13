@@ -8,6 +8,7 @@ const EVENTS_ENDPOINT = 'https://studbud-two.vercel.app/api/events';
 const AVATAR_ENDPOINT = 'https://studbud-two.vercel.app/api/avatar';
 const FEEDBACK_ENDPOINT = 'https://studbud-two.vercel.app/api/feedback';
 const STUCK_ENDPOINT = 'https://studbud-two.vercel.app/api/stuck';
+const WAITLIST_ENDPOINT = 'https://studbud-two.vercel.app/api/waitlist';
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'BREAKDOWN_TASK') {
@@ -64,6 +65,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((data) => sendResponse(data))
       .catch((err) => {
         console.error('Stuck help request failed:', err);
+        sendResponse({ ok: false, error: 'network' });
+      });
+    return true; // async response
+  }
+
+  if (message.type === 'WAITLIST_JOIN') {
+    // payload: { email }. Response: { ok } on success, { ok: false, error, limit? } otherwise.
+    handleWaitlist(message.payload)
+      .then((data) => sendResponse(data))
+      .catch((err) => {
+        console.error('Waitlist request failed:', err);
         sendResponse({ ok: false, error: 'network' });
       });
     return true; // async response
@@ -157,6 +169,22 @@ async function handleStuckHelp(payload) {
   }
 
   const res = await fetch(STUCK_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await res.json().catch(() => ({}));
+  return { ...body, ok: res.ok };
+}
+
+// Does not throw on a non-OK status so the content script can read { error, limit } from the body.
+async function handleWaitlist(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Missing waitlist payload');
+  }
+
+  const res = await fetch(WAITLIST_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

@@ -12,6 +12,7 @@ import { Redis } from '@upstash/redis';
 
 // Limit-wall funnel: use_yes | use_no (would you use it), then pay_no, or pay_<yes|maybe>_<lt3|3|5|8>
 // (would you pay + the most per month). The pay answer is part of the price event name so the pair stays together.
+// waitlist_join: the student submitted an email to /api/waitlist (the email itself is never sent here).
 // finish_*, upgrade_click and price_* are no longer sent by the extension; kept so older installs still record.
 const PAY_EVENTS = ['pay_no'];
 for (const answer of ['yes', 'maybe']) {
@@ -20,7 +21,7 @@ for (const answer of ['yes', 'maybe']) {
 const EVENTS = new Set([
   'plan_created', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
-  'use_yes', 'use_no',
+  'use_yes', 'use_no', 'waitlist_join',
   ...PAY_EVENTS,
 ]);
 const ID_RE = /^[A-Za-z0-9-]{8,64}$/;

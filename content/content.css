@@ -944,3 +944,9 @@
 .studbud-stuck-entry.studbud-hidden {
   display: none;
 }
+
+/* ---- Waitlist (limit wall, shown only to students open to paying) ---- */
+
+.studbud-waitlist {
+  margin: 4px 0 10px;
+}
