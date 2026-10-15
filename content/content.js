@@ -253,6 +253,13 @@ function getAnonId() {
   });
 }
 
+// Every breakdown request carries the anonymous install id so the server can apply a per-user daily cap.
+function sendBreakdown(payload, callback) {
+  getAnonId().then((userId) => {
+    chrome.runtime.sendMessage({ type: 'BREAKDOWN_TASK', payload: { ...payload, userId } }, callback);
+  });
+}
+
 async function recordInterest(feature, integrations) {
   const anonId = await getAnonId();
   const event = {
@@ -1120,12 +1127,14 @@ function requestBreakdown(brief, answers, round) {
   intakeError = '';
   render();
 
-  chrome.runtime.sendMessage({ type: 'BREAKDOWN_TASK', payload: { brief, answers, round } }, (response) => {
+  sendBreakdown({ brief, answers, round }, (response) => {
     requestInFlight = false;
 
     if (chrome.runtime.lastError || !response || !response.ok) {
       console.error('Breakdown failed:', (response && response.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message));
-      intakeError = 'Could not analyze that. Your text is kept — try again.';
+      // Daily-cap messages from the server (per-user, per-network or global) say retrying now will not help, so show them as written.
+      const serverMsg = response && typeof response.error === 'string' ? response.error : '';
+      intakeError = /tomorrow/i.test(serverMsg) ? serverMsg : 'Could not analyze that. Your text is kept — try again.';
       render();
       return;
     }
@@ -1189,8 +1198,8 @@ function startExpand(index) {
   expandingIndex = index;
   expandError = false;
 
-  chrome.runtime.sendMessage(
-    { type: 'BREAKDOWN_TASK', payload: { mode: 'expand', brief, label: step.text, ask: step.ask } },
+  sendBreakdown(
+    { mode: 'expand', brief, label: step.text, ask: step.ask },
     (response) => {
       if (seq !== expandSeq) return; // plan was reset while this was in flight
       expandingIndex = null;

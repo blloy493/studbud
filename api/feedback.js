@@ -17,6 +17,7 @@
 // it is free text typed by students.
 
 import { Redis } from '@upstash/redis';
+import { guard } from './_lib/guard.js';
 
 const MAX_TEXT = 500; // keep in sync with FEEDBACK_MAX_LEN in content.js
 const DAILY_CAP = 5;  // submissions per anonId per UTC day (a legitimate student sends one)
@@ -35,17 +36,7 @@ function cleanCount(v) {
 }
 
 export default async function handler(req, res) {
-  // CORS: allow the extension to call this endpoint.
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (!(await guard(req, res, { name: 'feedback', ipDailyCap: 150, globalDailyCap: 500 }))) return;
 
   const body = req.body || {};
 

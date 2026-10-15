@@ -9,6 +9,7 @@
 //   events:durations   LIST  seconds from plan creation to completion (latest 1000)
 
 import { Redis } from '@upstash/redis';
+import { guard } from './_lib/guard.js';
 
 // Limit-wall funnel: use_yes | use_no (would you use it), then pay_no, or pay_<yes|maybe>_<lt3|3|5|8>
 // (would you pay + the most per month). The pay answer is part of the price event name so the pair stays together.
@@ -39,12 +40,7 @@ function getRedis() {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (!(await guard(req, res, { name: 'events', ipDailyCap: 5000, globalDailyCap: 20000 }))) return;
 
   const { anonId, name, elapsedSec } = req.body || {};
   if (typeof anonId !== 'string' || !ID_RE.test(anonId)) {

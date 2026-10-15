@@ -20,6 +20,7 @@
 //   3. Persona rules in the prompt (roast the behavior, never the student).
 
 import { Redis } from '@upstash/redis';
+import { guard } from './_lib/guard.js';
 
 const MAX_MESSAGE = 500;
 const MAX_HISTORY = 6;
@@ -160,17 +161,7 @@ async function moderate(message) {
 }
 
 export default async function handler(req, res) {
-  // CORS: allow the extension to call this endpoint.
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (!(await guard(req, res, { name: 'avatar', ipDailyCap: 1000, globalDailyCap: 2000 }))) return;
 
   const body = req.body || {};
 

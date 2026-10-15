@@ -13,6 +13,7 @@
 // The server enforces the level (the client says which one); the model never chooses how far to go.
 
 import { Redis } from '@upstash/redis';
+import { guard } from './_lib/guard.js';
 
 const MAX_BRIEF = 8000;      // accepted size (matches breakdown.js)
 const DAILY_CAP = 15;        // help requests per userId per UTC day (up to 3 per step). A guess: tune from beta data.
@@ -133,12 +134,7 @@ function sanitizeOutput(level, parsed) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (!(await guard(req, res, { name: 'stuck', ipDailyCap: 600, globalDailyCap: 1500 }))) return;
 
   const body = req.body || {};
 

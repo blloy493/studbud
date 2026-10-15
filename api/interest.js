@@ -6,6 +6,7 @@
 // set automatically by the Upstash Redis Marketplace integration on Vercel.
 
 import { Redis } from '@upstash/redis';
+import { guard } from './_lib/guard.js';
 
 // fromEnv() only looks for the unprefixed UPSTASH_REDIS_REST_URL/TOKEN names.
 // Vercel prefixed these with the store name (STUDBUD_INTEREST_) because
@@ -20,17 +21,7 @@ const VALID_FEATURES = new Set(['parser', 'injection_system']);
 const MAX_INTEGRATIONS = 20; // abuse guard, not a real limit — we only ever send ~8
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (!(await guard(req, res, { name: 'interest', ipDailyCap: 300, globalDailyCap: 2000 }))) return;
 
   const { anonId, feature, integrations, timestamp } = req.body || {};
 
