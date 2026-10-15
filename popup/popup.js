@@ -9,6 +9,7 @@ let initialName = DEFAULT_NAME;   // name shown when the popup opened; save only
 
 const DEFAULT_SETTINGS = {
   avatarHidden: false,
+  extensionDisabled: false,
   excludedSites: [],
 };
 
@@ -18,6 +19,7 @@ async function init() {
   const settings = await loadSettings();
 
   document.getElementById('hide-avatar').checked = settings.avatarHidden;
+  document.getElementById('extension-disabled').checked = settings.extensionDisabled;
   document.getElementById('excluded-sites').value = settings.excludedSites.join('\n');
 
   const profile = await loadAvatarProfile();
@@ -58,13 +60,14 @@ function loadAvatarProfile() {
 
 function saveSettings() {
   const avatarHidden = document.getElementById('hide-avatar').checked;
+  const extensionDisabled = document.getElementById('extension-disabled').checked;
   const excludedSites = document
     .getElementById('excluded-sites')
     .value.split('\n')
     .map((line) => line.trim().toLowerCase())
     .filter(Boolean);
 
-  const data = { [SETTINGS_KEY]: { avatarHidden, excludedSites } };
+  const data = { [SETTINGS_KEY]: { avatarHidden, extensionDisabled, excludedSites } };
 
   // Only write the name if it was edited, so saving other settings never marks the
   // first-open naming prompt as answered.

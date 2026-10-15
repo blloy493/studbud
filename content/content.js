@@ -42,6 +42,7 @@ const FOCUS_AVATAR_SRC = chrome.runtime.getURL('active_evol_1.png');
 
 const DEFAULT_SETTINGS = {
   avatarHidden: false,
+  extensionDisabled: false,
   excludedSites: [],
 };
 
@@ -108,13 +109,24 @@ let state = { ...DEFAULT_STATE };
 
 init();
 
-async function init() {
-  const settings = await loadSettings();
+let mounted = false; // true while the avatar + task widget are injected on this page
+
+function isExcludedSite(settings) {
   const hostname = window.location.hostname.toLowerCase();
-  const isExcluded = settings.excludedSites.some(
+  return settings.excludedSites.some(
     (site) => hostname === site || hostname.endsWith('.' + site)
   );
-  if (isExcluded) return; // don't inject anything on excluded sites
+}
+
+async function init() {
+  const settings = await loadSettings();
+  if (settings.extensionDisabled || isExcludedSite(settings)) return; // inject nothing
+  await mountStudBud(settings);
+}
+
+async function mountStudBud(settings) {
+  if (mounted) return;
+  mounted = true; // set first so a second call during the awaits below can't double-mount
 
   state = await loadState();
   avatarProfile = await loadAvatarProfile();
@@ -134,6 +146,19 @@ async function init() {
   }
 }
 
+function unmountStudBud() {
+  if (!mounted) return;
+  mounted = false;
+  stopFocusTicking();
+  clearBubbleFadeTimer();
+  bubbleSeq++;  // drop in-flight avatar/stuck replies
+  expandSeq++;  // drop in-flight expand replies
+  const avatar = document.getElementById('studbud-avatar');
+  if (avatar) avatar.remove();
+  const widget = document.getElementById('studbud-task-widget');
+  if (widget) widget.remove();
+}
+
 function loadSettings() {
   return new Promise((resolve) => {
     chrome.storage.local.get([SETTINGS_KEY], (result) => {
@@ -149,12 +174,17 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return;
 
   if (changes[SETTINGS_KEY]) {
-    const avatar = document.getElementById('studbud-avatar');
-    if (avatar) {
-      const newSettings = changes[SETTINGS_KEY].newValue || DEFAULT_SETTINGS;
-      avatar.classList.toggle('studbud-hidden', !!newSettings.avatarHidden);
+    const newSettings = { ...DEFAULT_SETTINGS, ...(changes[SETTINGS_KEY].newValue || {}) };
+    if (newSettings.extensionDisabled) {
+      unmountStudBud();
+    } else if (!mounted && !isExcludedSite(newSettings)) {
+      mountStudBud(newSettings); // re-enabled: mount live, no reload needed
     }
+    const avatar = document.getElementById('studbud-avatar');
+    if (avatar) avatar.classList.toggle('studbud-hidden', !!newSettings.avatarHidden);
   }
+
+  if (!mounted) return; // nothing injected here (disabled or excluded site): ignore state/usage/profile changes
 
   if (changes[AVATAR_KEY] && changes[AVATAR_KEY].newValue) {
     avatarProfile = { ...DEFAULT_AVATAR, ...changes[AVATAR_KEY].newValue };
@@ -1364,6 +1394,7 @@ function stopFocusTicking() {
 // ---------- Render ----------
 
 function render() {
+  if (!mounted) return; // in-flight responses can finish after unmount
   const avatar = document.getElementById('studbud-avatar');
   avatar.classList.toggle('minimized', state.avatarMinimized);
 
@@ -1473,7 +1504,7 @@ const WAITLIST_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function waitlistHtml() {
   if (usage.waitlistJoined) {
-    return `<div class="studbud-upsell-thanks">You're on the list. We'll email you when unlimited access launches.</div>`;
+    return `<div class="studbud-upsell-thanks">You're on the list! We'll email you when unlimited access launches.</div>`;
   }
   return `
     <div class="studbud-waitlist">
