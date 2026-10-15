@@ -181,14 +181,15 @@ async function callModel(system, userContent, maxTokens) {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-6-luna',
+      reasoning_effort: 'none', // reasoning model: skip hidden reasoning so the token cap goes to the JSON output
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: userContent },
       ],
       response_format: { type: 'json_object' }, // guarantees syntactically valid JSON (object, not array)
       temperature: 0.2, // low: favors grounded, literal steps over creative/inferred ones
-      max_tokens: maxTokens,
+      max_completion_tokens: maxTokens,
     }),
   });
 

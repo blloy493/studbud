@@ -1,7 +1,7 @@
 // api/stuck.js
 // Vercel serverless function. Deploy path: /api/stuck
 // Requires env vars: OPENAI_API_KEY, STUDBUD_INTEREST_KV_REST_API_URL, STUDBUD_INTEREST_KV_REST_API_TOKEN
-// Optional: STUCK_L2_MODEL (model for worked examples, default gpt-4o-mini).
+// Optional: STUCK_L2_MODEL (model for worked examples, default gpt-6-luna).
 //
 // Scaffolded "I'm stuck" help, delivered through the avatar speech bubble.
 // Request:  { userId, brief, step: {title, detail, ask?, group?}, type, level: 1|2|3, stuckKind, history?: [{level, text}] }
@@ -29,7 +29,7 @@ const VALID_TYPES = [
   'reading_response', 'presentation', 'coding', 'other',
 ];
 
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_MODEL = 'gpt-6-luna';
 const L2_MODEL = process.env.STUCK_L2_MODEL || DEFAULT_MODEL;
 
 const BASE_PROMPT =
@@ -205,8 +205,9 @@ export default async function handler(req, res) {
           { role: 'user', content: userContent },
         ],
         response_format: { type: 'json_object' },
+        reasoning_effort: 'none', // keep the token cap for the JSON output, not hidden reasoning
         temperature: 0.3,
-        max_tokens: 900,
+        max_completion_tokens: 900,
       }),
     });
 

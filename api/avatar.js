@@ -214,7 +214,8 @@ export default async function handler(req, res) {
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'gpt-6-luna',
+          reasoning_effort: 'none', // keep the token cap for the reply, not hidden reasoning
           messages: [
             { role: 'system', content: buildSystemPrompt(ctx) },
             ...history,
@@ -222,7 +223,7 @@ export default async function handler(req, res) {
           ],
           response_format: { type: 'json_object' },
           temperature: 0.7, // humor needs more variance than breakdown (0.2); classification may be slightly less stable
-          max_tokens: 200,
+          max_completion_tokens: 200,
         }),
       }),
     ]);
