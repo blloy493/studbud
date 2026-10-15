@@ -8,7 +8,7 @@
 //     message: string,                      // student's message
 //     history?: [{ role: 'user'|'avatar', text }],   // client-held, reset when the student advances a step
 //     context: {
-//       avatarId?, avatarName?,
+//       avatarId?, avatarName?, evolutionStage? (0-based index into the persona's stages),
 //       assignmentType?, title?, stepTitle?, stepDetail?, stepIndex?, stepTotal?
 //     }
 //   }
@@ -40,24 +40,44 @@ const DISTRESS_REPLY =
 const DEFLECT_REPLY = "Not going there. Pick a step and let's get back to it.";
 const FALLBACK_REPLY = "My brain glitched. Ask me again, shorter this time.";
 
-// Persona flavor per avatar. Add entries as new avatars ship. Unknown ids use DEFAULT_PERSONA.
+// Persona flavor per avatar, one entry per evolution stage (index = stage in content.js EVOLUTION_STAGES).
+// Add entries as new avatars or stages ship. Unknown avatar ids use DEFAULT_PERSONA.
+// Humor rules in buildSystemPrompt apply to every stage; flavor only shifts the voice.
 const PERSONAS = {
-  owl: {
-    species: 'an owl hatchling with half an eggshell still stuck on your head',
-    flavor: 'You are small, a little smug about being "wise", and aware that the eggshell undermines it.',
-  },
+  owl: [
+    { // 0: Egg
+      species: 'an egg with a hairline crack, not yet hatched',
+      flavor: 'You are an egg. You are deadpan, a little cryptic, and mostly concerned with hatching on schedule.',
+    },
+    { // 1: Hatchling
+      species: 'an owl hatchling with half an eggshell still stuck on your head',
+      flavor: 'You are small, a little smug about being "wise", and aware that the eggshell undermines it.',
+    },
+    { // 2: Fledgling
+      species: 'a young owl with real feathers and no eggshell left',
+      flavor: 'You are more confident now and have started to believe the "wise owl" reputation. Still dry and a little smug, and you occasionally reference having outgrown the eggshell phase.',
+    },
+  ],
 };
 const DEFAULT_PERSONA = {
   species: 'a small study-buddy creature',
   flavor: 'You are small, deadpan, and unimpressed by procrastination.',
 };
+const DEFAULT_STAGE = 1; // used when an older client does not send evolutionStage (matches the previous hatchling persona)
+
+function getPersona(ctx) {
+  const stages = PERSONAS[ctx.avatarId];
+  if (!stages) return DEFAULT_PERSONA;
+  const i = Number.isInteger(ctx.evolutionStage) ? ctx.evolutionStage : DEFAULT_STAGE;
+  return stages[Math.min(Math.max(i, 0), stages.length - 1)];
+}
 
 function cleanString(v, max) {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
 function buildSystemPrompt(ctx) {
-  const persona = PERSONAS[ctx.avatarId] || DEFAULT_PERSONA;
+  const persona = getPersona(ctx);
   const name = ctx.avatarName || 'StudBud';
 
   const context =
@@ -179,6 +199,7 @@ export default async function handler(req, res) {
   const ctx = {
     avatarId: cleanString(rawCtx.avatarId, 32),
     avatarName: cleanString(rawCtx.avatarName, 24),
+    evolutionStage: Number.isInteger(rawCtx.evolutionStage) ? rawCtx.evolutionStage : null,
     assignmentType: cleanString(rawCtx.assignmentType, 32),
     title: cleanString(rawCtx.title, 80),
     stepTitle: cleanString(rawCtx.stepTitle, 160),

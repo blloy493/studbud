@@ -572,6 +572,9 @@ function sendAvatarMessage() {
       history: bubble.history.slice(-AVATAR_HISTORY_MAX),
       context: {
         avatarId: AVATAR_ID,
+        avatarId: AVATAR_ID,
+        avatarName: avatarProfile.name,
+        evolutionStage: getStageForXp(state.xp),
         avatarName: avatarProfile.name,
         assignmentType: state.assignmentType || '',
         title: state.taskTitle || '',
