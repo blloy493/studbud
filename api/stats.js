@@ -18,14 +18,36 @@ function getRedis() {
   return redis;
 }
 
+async function scanKeys(r, match) {
+  const keys = [];
+  let cursor = '0';
+  do {
+    const [next, batch] = await r.scan(cursor, { match, count: 500 });
+    cursor = String(next);
+    keys.push(...batch);
+  } while (cursor !== '0');
+  return keys;
+}
+
+async function readCounters(r, match) {
+  const keys = await scanKeys(r, match);
+  const out = {};
+  if (keys.length === 0) return out;
+  const values = await r.mget(...keys);
+  keys.forEach((k, i) => { out[k] = Number(values[i] || 0); });
+  return out;
+}
+
 const round2 = (x) => Math.round(x * 100) / 100;
 
-export function summarize(rows, durations) {
+export function summarize(rows, durations, stuckCounters = {}) {
   const num = (h, k) => Number(h[k] || 0);
   const totals = { plan_created: 0, step_completed: 0, plan_completed: 0, finish_yes: 0, finish_no: 0 };
   const byCompleted = { '0': 0, '1': 0, '2': 0, '3+': 0 };
   let usersWithCompletion = 0;
   let activeDays = 0;
+  let stuckOpens = 0;
+  let usersOpenedStuck = 0;
   const funnel = { usersHitLimit: 0, usersClickedUpgrade: 0, priceChoices: { '3': 0, '5': 0, '8': 0, none: 0 } };
 
   rows.forEach((h) => {
@@ -34,6 +56,8 @@ export function summarize(rows, durations) {
     if (c > 0) usersWithCompletion += 1;
     byCompleted[c >= 3 ? '3+' : String(c)] += 1;
     activeDays += Object.keys(h).filter((k) => k.startsWith('d:')).length;
+    stuckOpens += num(h, 'stuck_open');
+    if (num(h, 'stuck_open') > 0) usersOpenedStuck += 1;
     if (num(h, 'limit_hit') > 0) funnel.usersHitLimit += 1;
     if (num(h, 'upgrade_click') > 0) funnel.usersClickedUpgrade += 1;
     Object.keys(funnel.priceChoices).forEach((p) => { if (num(h, `price_${p}`) > 0) funnel.priceChoices[p] += 1; });
@@ -45,6 +69,19 @@ export function summarize(rows, durations) {
   const median = secs.length === 0 ? null : secs.length % 2 ? secs[(secs.length - 1) / 2] : (secs[mid - 1] + secs[mid]) / 2;
   const answered = totals.finish_yes + totals.finish_no;
 
+  // Help requests come from the counters stuck.js writes (successful responses only, by level).
+  const stuckRequests = { level1: 0, level2: 0, level3: 0, total: 0 };
+  let stuckReports = 0;
+  Object.entries(stuckCounters).forEach(([k, v]) => {
+    const m = k.match(/^stuck:count:level([123]):/);
+    if (m) {
+      stuckRequests[`level${m[1]}`] += v;
+      stuckRequests.total += v;
+    } else if (k.startsWith('stuck:report:')) {
+      stuckReports += v;
+    }
+  });
+
   return {
     users,
     usersWithCompletion,
@@ -55,6 +92,17 @@ export function summarize(rows, durations) {
     avgActiveDaysPerUser: users ? round2(activeDays / users) : null,
     usersByCompletedPlans: byCompleted,
     selfReportedFinished: { yes: totals.finish_yes, no: totals.finish_no, yesRate: answered ? round2(totals.finish_yes / answered) : null },
+    // "I'm stuck": opens = button clicks (stuck_open event), requests = successful help responses by level.
+    // level1PerOpen = share of opens that led to a first help request; well below 1 means students open the menu
+    // and leave without choosing a chip. Installs that predate the stuck_open event add requests without opens,
+    // so the ratio is only reliable once most testers are updated.
+    stuckHelp: {
+      opens: stuckOpens,
+      usersOpened: usersOpenedStuck,
+      requests: stuckRequests,
+      reportedWrong: stuckReports,
+      level1PerOpen: stuckOpens ? round2(stuckRequests.level1 / stuckOpens) : null,
+    },
     // Upgrade wall: of the users who hit the cap, how many clicked Upgrade, and what price they picked (users, not clicks).
     upgradeFunnel: {
       ...funnel,
@@ -79,13 +127,7 @@ export default async function handler(req, res) {
 
   try {
     const r = getRedis();
-    const keys = [];
-    let cursor = '0';
-    do {
-      const [next, batch] = await r.scan(cursor, { match: 'events:u:*', count: 500 });
-      cursor = String(next);
-      keys.push(...batch);
-    } while (cursor !== '0');
+    const keys = await scanKeys(r, 'events:u:*');
 
     let rows = [];
     if (keys.length > 0) {
@@ -95,7 +137,8 @@ export default async function handler(req, res) {
     }
     const durations = await r.lrange('events:durations', 0, -1);
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json(summarize(rows, durations || []));
+    const stuckCounters = { ...(await readCounters(r, 'stuck:count:*')), ...(await readCounters(r, 'stuck:report:*')) };
+    return res.status(200).json(summarize(rows, durations || [], stuckCounters));
   } catch (err) {
     console.error('Stats endpoint error:', err);
     return res.status(500).json({ error: 'Internal server error' });

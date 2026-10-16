@@ -330,7 +330,7 @@ function buildAvatar() {
       <div class="studbud-bubble-echo studbud-hidden"></div>
       <div class="studbud-bubble-reply studbud-hidden" role="status" aria-live="polite"></div>
       <div class="studbud-stuck-area studbud-hidden" role="status" aria-live="polite"></div>
-      <button type="button" class="studbud-stuck-btn studbud-stuck-btn-secondary studbud-stuck-entry studbud-hidden">I'm stuck on this step</button>
+      <button type="button" class="studbud-stuck-btn studbud-stuck-btn-secondary studbud-stuck-entry studbud-hidden">I'm stuck!</button>
       <div class="studbud-bubble-inputrow">
         <input id="studbud-bubble-input" class="studbud-field-input" type="text" maxlength="${AVATAR_CHAT_MAX_LEN}" placeholder="Ask about this step…" aria-label="Ask your study buddy" autocomplete="off" />
         <div class="studbud-bubble-count studbud-hidden"></div>
@@ -881,7 +881,7 @@ function buildTaskWidget() {
     <div id="studbud-task-body">
       <div id="studbud-name-card" class="studbud-hidden">
         <div class="studbud-intake-title">Name your study buddy</div>
-        <div class="studbud-intake-sub">You can change it later in the StudBud popup.</div>
+        <div class="studbud-intake-sub">You can change it later in Settings by clicking on the puzzle piece then the StudBud icon. Pin the extension for easy access. </div>
         <input id="studbud-name-input" class="studbud-field-input" type="text" maxlength="${MAX_NAME_LEN}" value="${DEFAULT_NAME}" />
         <div id="studbud-name-count" class="studbud-note"></div>
         <button id="studbud-name-save" class="studbud-primary-btn" type="button">Save name</button>
@@ -1671,7 +1671,7 @@ function renderIntake(container, focusSlot) {
   }
 
   container.innerHTML = `
-    <div class="studbud-intake-title">Paste your assignment</div>
+    <div class="studbud-intake-title">Paste your question / assignment</div>
     <div class="studbud-intake-sub">Include the prompt, requirements, and rubric if you have them. Your steps are built from this text.</div>
     <textarea id="studbud-task-input" rows="6" maxlength="${MAX_BRIEF_CHARS}" placeholder="Paste your full assignment instructions here"></textarea>
     <div class="studbud-intake-meta"><span id="studbud-intake-hint"></span><span>${left} of ${ANALYSIS_LIMIT} analyses left</span></div>
