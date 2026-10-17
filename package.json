@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "background.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "readout": "node --env-file=.env.local scripts/readout.mjs",
+    "pack": "zip -r studbud-0.1.1.zip active_evol_1.png, active_evol_2.png active_evol_3.png api background.js content icons idle_evol_1.png idle_evol_2.png idle_evol_3.png manifest.json node_modules package-lock.json package.json popup"
   },
   "keywords": [],
   "author": "",
@@ -11,5 +13,8 @@
   "description": "",
   "dependencies": {
     "@upstash/redis": "^1.39.0"
+  },
+  "devDependencies": {
+    "dotenv": "^18.0.8"
   }
 }

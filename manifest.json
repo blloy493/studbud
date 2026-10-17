@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "StudBud",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A study coach that instantly breaks down assignments, rewards progress and helps you along the way.",
 
   "permissions": ["storage"],

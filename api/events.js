@@ -1,11 +1,11 @@
 // api/events.js
 // Vercel serverless function. Deploy path: /api/events
 // Records anonymous usage events to Upstash Redis so beta value can be measured.
-// Stores ONLY: an anonymous install ID, event names, per-day activity flags and plan durations.
+// Stores ONLY: an anonymous install ID, event names, per-day activity flags, plan sizes and plan durations.
 // It never receives assignment text, answers or any other student content.
 //
-// Redis layout (2 commands per event):
-//   events:u:<anonId>  HASH  { <event name>: count, "d:YYYY-MM-DD": 1 }
+// Redis layout (2-3 commands per event):
+//   events:u:<anonId>  HASH  { <event name>: count, "d:YYYY-MM-DD": 1, steps_total: sum of plan sizes }
 //   events:durations   LIST  seconds from plan creation to completion (latest 1000)
 
 import { Redis } from '@upstash/redis';
@@ -21,7 +21,7 @@ for (const answer of ['yes', 'maybe']) {
   for (const price of ['lt3', '3', '5', '8']) PAY_EVENTS.push(`pay_${answer}_${price}`);
 }
 const EVENTS = new Set([
-  'plan_created', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
+  'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
   'use_yes', 'use_no', 'waitlist_join', 'stuck_open',
   ...PAY_EVENTS,
@@ -43,7 +43,7 @@ function getRedis() {
 export default async function handler(req, res) {
   if (!(await guard(req, res, { name: 'events', ipDailyCap: 5000, globalDailyCap: 20000 }))) return;
 
-  const { anonId, name, elapsedSec } = req.body || {};
+  const { anonId, name, elapsedSec, steps } = req.body || {};
   if (typeof anonId !== 'string' || !ID_RE.test(anonId)) {
     return res.status(400).json({ error: 'Invalid anonId' });
   }
@@ -57,6 +57,12 @@ export default async function handler(req, res) {
     const p = getRedis().pipeline();
     p.hincrby(key, name, 1);
     p.hset(key, { [`d:${day}`]: 1 }); // idempotent per-day flag -> active days = count of d:* fields
+    // Plan size (optional; sent by 0.1.1+): steps at creation, plus steps_added when a worksheet question is
+    // expanded into micro-steps. Older clients omit it, which is fine.
+    // steps_total / plan_created = average steps per plan.
+    if ((name === 'plan_created' || name === 'steps_added') && Number.isInteger(steps) && steps >= 1 && steps <= 100) {
+      p.hincrby(key, 'steps_total', steps);
+    }
     if (name === 'plan_completed' && Number.isFinite(elapsedSec) && elapsedSec >= 0) {
       p.lpush('events:durations', Math.round(elapsedSec));
       p.ltrim('events:durations', 0, 999);

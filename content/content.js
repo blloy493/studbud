@@ -330,11 +330,11 @@ function buildAvatar() {
       <div class="studbud-bubble-echo studbud-hidden"></div>
       <div class="studbud-bubble-reply studbud-hidden" role="status" aria-live="polite"></div>
       <div class="studbud-stuck-area studbud-hidden" role="status" aria-live="polite"></div>
-      <button type="button" class="studbud-stuck-btn studbud-stuck-btn-secondary studbud-stuck-entry studbud-hidden">I'm stuck!</button>
       <div class="studbud-bubble-inputrow">
         <input id="studbud-bubble-input" class="studbud-field-input" type="text" maxlength="${AVATAR_CHAT_MAX_LEN}" placeholder="Ask about this step…" aria-label="Ask your study buddy" autocomplete="off" />
         <div class="studbud-bubble-count studbud-hidden"></div>
       </div>
+      <button type="button" class="studbud-stuck-btn studbud-stuck-btn-secondary studbud-stuck-entry studbud-hidden">I'm stuck!</button>
     </div>
     <button id="studbud-avatar-toggle" title="Minimize">–</button>
   `;
@@ -962,13 +962,15 @@ function buildTaskWidget() {
  
 // ---------- Beta analytics ----------
 // Anonymous counters only (see api/events.js). No assignment text or answers are ever sent.
-// Events: plan_created | step_completed | plan_completed | limit_hit | use_yes | use_no | pay_no |
+// Events: plan_created | steps_added | step_completed | plan_completed | limit_hit | use_yes | use_no | pay_no |
 //         pay_{yes|maybe}_{lt3|3|5|8} | waitlist_join   (must match EVENTS in api/events.js)
+// `steps` (plan_created, steps_added) is a count only: plan size at creation, then the net steps added when a
+// worksheet question is expanded into micro-steps. The server sums both into steps_total.
  
-async function trackEvent(name, elapsedSec) {
+async function trackEvent(name, elapsedSec, steps) {
   try {
     const anonId = await getAnonId();
-    chrome.runtime.sendMessage({ type: 'RECORD_EVENT', event: { anonId, name, elapsedSec } }, () => {
+    chrome.runtime.sendMessage({ type: 'RECORD_EVENT', event: { anonId, name, elapsedSec, steps } }, () => {
       void chrome.runtime.lastError; // analytics must never break the UI
     });
   } catch (e) {
@@ -1016,7 +1018,7 @@ function mountFeedback(trigger) {
   if (!slot) return;
 
   if (fbThanks) {
-    slot.innerHTML = '<div class="studbud-upsell-thanks">✓ Thanks, that helps.</div>';
+    slot.innerHTML = '<div class="studbud-upsell-thanks">Thanks for helping us make StudBud better!.</div>';
     return;
   }
   const key = feedbackKey(trigger);
@@ -1193,7 +1195,7 @@ function requestBreakdown(brief, answers, round) {
       usage.analysesUsed = (usage.analysesUsed || 0) + 1;
       saveUsage();
       state.planStartedAt = Date.now();
-      trackEvent('plan_created');
+      trackEvent('plan_created', undefined, state.subtasks.length);
       intakeDraft = '';
       clarifyDrafts = [];
       saveState();
@@ -1255,6 +1257,7 @@ function startExpand(index) {
         gid: step.gid, group: step.text, ask: step.ask,
       }));
       state.subtasks.splice(index, 1, ...subs);
+      if (subs.length > 1) trackEvent('steps_added', undefined, subs.length - 1); // net growth: 1 question step became subs.length steps
       saveState();
       render();
     }
@@ -1472,7 +1475,7 @@ function renderCurrentSubtask() {
   const focusSlot = `<div id="studbud-focus-area"></div>`;
 
   if (requestInFlight) {
-    container.innerHTML = `<div class="studbud-loading">Analyzing your assignment…</div>${focusSlot}`;
+    container.innerHTML = `<div class="studbud-loading">Breaking your assignment down..."</div>${focusSlot}`;
     renderFocusArea();
     return;
   }
@@ -1676,7 +1679,7 @@ function renderIntake(container, focusSlot) {
     <textarea id="studbud-task-input" rows="6" maxlength="${MAX_BRIEF_CHARS}" placeholder="Paste your full assignment instructions here"></textarea>
     <div class="studbud-intake-meta"><span id="studbud-intake-hint"></span><span>${left} of ${ANALYSIS_LIMIT} analyses left</span></div>
     ${intakeErrorHtml()}
-    <button id="studbud-task-submit" class="studbud-primary-btn" disabled>Analyze assignment</button>
+    <button id="studbud-task-submit" class="studbud-primary-btn" disabled>Breakdown assignment</button>
     ${focusSlot}`;
 
   const input = document.getElementById('studbud-task-input');
