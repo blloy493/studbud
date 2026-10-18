@@ -5,9 +5,13 @@
 //
 // Reads events:u:<anonId> hashes (SCAN) and the events:durations list written by api/events.js.
 // Users without `steps_total` (pre-0.1.1 installs) are excluded from the plan-size metrics, not counted as 0.
+// Users without `intake_started` (older clients) are excluded from the intake-success metric.
+// Optional: STUDBUD_EXCLUDE_IDS=id1,id2 drops those anon install ids (e.g. your dev install) before summarizing.
+// Note: the events:durations list is anonymous, so excluded ids' durations cannot be removed from it.
 
 const DAY_MS = 86400000;
 const PAY_PRICES = ['lt3', '3', '5', '8'];
+const MIN_N = 30; // decision rule: don't apply thresholds to a denominator below this (worst-case error > ±18 points)
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const sum = (arr) => arr.reduce((a, b) => a + b, 0);
@@ -33,6 +37,15 @@ export function summarize(users, durations, todayIso = new Date().toISOString().
   out.installs = users.length;
   const planners = users.filter((u) => num(u.plan_created) > 0);
   out.usersWithPlan = planners.length;
+
+  // Intake success: users who typed into the intake box and then got a plan.
+  // Cohort = users whose client sends intake_started. Older clients have plan_created but no intake_started,
+  // so they are left out of BOTH sides instead of inflating the numerator.
+  const started = users.filter((u) => num(u.intake_started) > 0);
+  const startedAndPlanned = started.filter((u) => num(u.plan_created) > 0);
+  out.usersStartedIntake = started.length;
+  out.intakeSuccess = `${startedAndPlanned.length}/${started.length} (${pct(startedAndPlanned.length, started.length)})` +
+    (started.length < MIN_N ? ` - n<${MIN_N}, anecdotal` : '');
 
   // Completion
   const created = sum(users.map((u) => num(u.plan_created)));
@@ -86,12 +99,13 @@ async function main() {
   if (!url || !token) throw new Error('Set STUDBUD_INTEREST_KV_REST_API_URL and _TOKEN');
   const redis = new Redis({ url, token });
 
+  const exclude = new Set((process.env.STUDBUD_EXCLUDE_IDS || '').split(',').map((x) => x.trim()).filter(Boolean));
   const keys = [];
   let cursor = '0';
   do {
     const [next, batch] = await redis.scan(cursor, { match: 'events:u:*', count: 500 });
     cursor = String(next);
-    keys.push(...batch);
+    keys.push(...batch.filter((k) => !exclude.has(k.slice('events:u:'.length))));
   } while (cursor !== '0');
 
   const users = [];
