@@ -962,8 +962,8 @@ function buildTaskWidget() {
  
 // ---------- Beta analytics ----------
 // Anonymous counters only (see api/events.js). No assignment text or answers are ever sent.
-// Events: plan_created | steps_added | step_completed | plan_completed | limit_hit | use_yes | use_no | pay_no |
-//         pay_{yes|maybe}_{lt3|3|5|8} | waitlist_join   (must match EVENTS in api/events.js)
+// Events: intake_started | plan_created | steps_added | step_completed | plan_completed | limit_hit | use_yes | use_no |
+//         pay_no | pay_{yes|maybe}_{lt3|3|5|8} | waitlist_join   (must match EVENTS in api/events.js)
 // `steps` (plan_created, steps_added) is a count only: plan size at creation, then the net steps added when a
 // worksheet question is expanded into micro-steps. The server sums both into steps_total.
  
@@ -976,6 +976,17 @@ async function trackEvent(name, elapsedSec, steps) {
   } catch (e) {
     /* ignore */
   }
+}
+
+// Funnel denominator: sent the first time the student types or pastes into the intake box on this page load.
+// Module flag only (NOT usage/state): a storage write here would fire the onChanged listener, which calls
+// render() and rebuilds the textarea mid-typing, dropping focus. Repeat sends on later page loads are harmless
+// because the server metric counts users with intake_started > 0, not the raw count.
+let intakeStartedSent = false;
+function trackIntakeStarted() {
+  if (intakeStartedSent) return;
+  intakeStartedSent = true;
+  trackEvent('intake_started');
 }
 
 // ---------- Feedback card ----------
@@ -1475,7 +1486,7 @@ function renderCurrentSubtask() {
   const focusSlot = `<div id="studbud-focus-area"></div>`;
 
   if (requestInFlight) {
-    container.innerHTML = `<div class="studbud-loading">Breaking your assignment down..."</div>${focusSlot}`;
+    container.innerHTML = `<div class="studbud-loading">Breaking your assignment down...</div>${focusSlot}`;
     renderFocusArea();
     return;
   }
@@ -1694,6 +1705,7 @@ function renderIntake(container, focusSlot) {
   };
   input.addEventListener('input', () => {
     intakeDraft = input.value;
+    if (input.value.trim()) trackIntakeStarted();
     update();
   });
   submit.addEventListener('click', onSubmitIntake);

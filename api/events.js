@@ -15,6 +15,8 @@ import { guard } from './_lib/guard.js';
 // (would you pay + the most per month). The pay answer is part of the price event name so the pair stays together.
 // waitlist_join: the student submitted an email to /api/waitlist (the email itself is never sent here).
 // stuck_open: the student clicked "I'm stuck on this step" (the click only; the help request itself is counted in stuck.js).
+// intake_started: the student typed or pasted into the intake box (sent by newer clients). Funnel denominator for
+// intake success = users with intake_started > 0; numerator = users with plan_created > 0. Count only, no text.
 // finish_*, upgrade_click and price_* are no longer sent by the extension; kept so older installs still record.
 const PAY_EVENTS = ['pay_no'];
 for (const answer of ['yes', 'maybe']) {
@@ -23,7 +25,7 @@ for (const answer of ['yes', 'maybe']) {
 const EVENTS = new Set([
   'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
-  'use_yes', 'use_no', 'waitlist_join', 'stuck_open',
+  'use_yes', 'use_no', 'waitlist_join', 'stuck_open', 'intake_started',
   ...PAY_EVENTS,
 ]);
 const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
