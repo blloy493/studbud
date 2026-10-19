@@ -59,14 +59,14 @@ const EVOLUTION_STAGES = [
   },
   
   {
-    min: 50,
+    min: 100,
     label: 'Hatchling',
     idle: 'idle_evol_2.png',
     focus: 'active_evol_2.png',
       
   },
   {
-    min: 150,
+    min: 250,
     label: 'Fledgling',
     idle: "idle_evol_3.png",
     focus: "active_evol_3.png",
@@ -75,6 +75,7 @@ const EVOLUTION_STAGES = [
 
 const FOCUS_DURATION_MS = 25 * 60 * 1000; // 25 minutes
 const FOCUS_BONUS_XP = 5;
+const MAX_XP = 250;
 
 const DEFAULT_STATE = {
   currentTask: null,       // string or null (the pasted assignment text)
@@ -199,6 +200,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes[STATE_KEY] && changes[STATE_KEY].newValue) {
     const hadFocusSession = !!state.focusSession;
     state = { ...DEFAULT_STATE, ...changes[STATE_KEY].newValue };
+    state.xp = Math.min(state.xp, MAX_XP);
 
     if (state.focusSession && !hadFocusSession) {
       startFocusTicking(); // a focus session was started in another tab
@@ -213,7 +215,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 function loadState() {
   return new Promise((resolve) => {
     chrome.storage.local.get([STATE_KEY], (result) => {
-      resolve(result[STATE_KEY] ? { ...DEFAULT_STATE, ...result[STATE_KEY] } : { ...DEFAULT_STATE });
+      const loaded = result[STATE_KEY] ? { ...DEFAULT_STATE, ...result[STATE_KEY] } : { ...DEFAULT_STATE };
+      loaded.xp = Math.min(loaded.xp, MAX_XP); // clamp installs that already exceed the cap
+      resolve(loaded);
     });
   });
 }
@@ -236,6 +240,8 @@ const DEFAULT_USAGE = {
   priceChoice: null,     // 'lt3' | '3' | '5' | '8' once the student named a monthly price (older installs may hold 'none')
   reuseAnswer: null,     // 'yes' | 'no' if the completion feedback card was answered; the wall then skips its own use question
   waitlistJoined: false, // true once the student submitted an email for the unlimited-access waitlist (the email itself is never kept here)
+  waitlistDeclined: false, // true once the student tapped "No thanks" under the waitlist form: the form is not shown again
+  limitIntroSeen: false, // true once the "Thank you for trying StudBud / you've hit the free beta limit" screen was continued past
   feedbackDone: false,         // true once feedback was submitted: never ask again
   feedbackAsks: 0,             // times the feedback card has been shown (max FEEDBACK_MAX_ASKS)
   feedbackLastKey: null,       // context of the latest ask ('plan:<planStartedAt>' | 'limit'); a re-render of the same context is not a new ask
@@ -612,9 +618,9 @@ const STUCK_MAX_LEVEL = 3;
 const STUCK_TIMEOUT_MS = 25000;   // worked examples may use a slower model (STUCK_L2_MODEL)
 const STUCK_HISTORY_MAX = 2;      // keep in sync with MAX_HISTORY in api/stuck.js
 const STUCK_KINDS = [
-  { id: 'understand', label: "Don't understand the step" },
-  { id: 'start', label: "Don't know where to start" },
-  { id: 'apply', label: "Can't apply it" },
+  { id: 'understand', label: "I don't understand the step" },
+  { id: 'start', label: "I don't know where to start" },
+  { id: 'apply', label: "I don't know how to apply it" },
 ];
 const STUCK_TEXT = {
   network: 'Signal lost. Try again in a second.',
@@ -875,7 +881,11 @@ function buildTaskWidget() {
     <div id="studbud-task-header">
       <span id="studbud-task-title">StudBud</span>
       <span id="studbud-task-mini-step"></span>
+      <button id="studbud-task-menu" class="studbud-hidden" type="button" title="More options" aria-haspopup="true" aria-expanded="false">⋯</button>
       <button id="studbud-task-toggle" title="Minimize">–</button>
+    </div>
+    <div id="studbud-task-menu-pop" class="studbud-hidden" role="menu">
+      <button id="studbud-menu-new" class="studbud-menu-item" type="button" role="menuitem">Start a new assignment</button>
     </div>
     <div id="studbud-task-mini"></div>
     <div id="studbud-task-body">
@@ -910,6 +920,16 @@ function buildTaskWidget() {
               <button id="studbud-integration-submit">Submit</button>
             </div>
           </div>
+          <div class="studbud-upsell-card">
+            <div class="studbud-upsell-card-title">🔒 Draft Check</div>
+            <div class="studbud-upsell-card-desc">Paste your draft and get feedback against your assignment's requirements. No rewriting.</div>
+            <button class="studbud-upsell-btn" data-feature="draft_check">Coming Soon — Interested?</button>
+          </div>
+          <div class="studbud-upsell-card">
+            <div class="studbud-upsell-card-title">🔒 Study Mode</div>
+            <div class="studbud-upsell-card-desc">Upload your study guide or review sheet. Get flashcards: one multiple-choice round, then one open-ended round.</div>
+            <button class="studbud-upsell-btn" data-feature="study_mode">Coming Soon — Interested?</button>
+          </div>
         </div>
       </div>
     </div>
@@ -937,6 +957,30 @@ function buildTaskWidget() {
     render();
   });
 
+  // Header menu: "Start a new assignment" lives here, away from the Next Step button. Two clicks to discard.
+  document.getElementById('studbud-task-menu').addEventListener('click', (e) => {
+    e.stopPropagation();
+    planMenuOpen = !planMenuOpen;
+    if (!planMenuOpen) confirmDiscard = false;
+    updatePlanMenu();
+  });
+  document.getElementById('studbud-menu-new').addEventListener('click', () => {
+    if (!confirmDiscard) {
+      confirmDiscard = true;
+      updatePlanMenu();
+      return;
+    }
+    planMenuOpen = false;
+    resetPlan();
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (!planMenuOpen) return;
+    if (e.target instanceof Element && e.target.closest('#studbud-task-menu, #studbud-task-menu-pop')) return;
+    planMenuOpen = false;
+    confirmDiscard = false;
+    updatePlanMenu();
+  }, true);
+
   document.getElementById('studbud-upsell-toggle').addEventListener('click', () => {
     const panel = document.getElementById('studbud-upsell-panel');
     const arrow = document.getElementById('studbud-upsell-toggle-arrow');
@@ -956,6 +1000,13 @@ function buildTaskWidget() {
     ).map((el) => el.value);
     recordInterest('injection_system', integrations);
     picker.innerHTML = '<div class="studbud-upsell-thanks">✓ Thanks — we\'ll let you know!</div>';
+  });
+
+  document.querySelectorAll('.studbud-upsell-btn:not(#studbud-upsell-btn-injection)').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      recordInterest(btn.dataset.feature, []);
+      btn.outerHTML = '<div class="studbud-upsell-thanks">✓ Thanks — we\'ll let you know!</div>';
+    });
   });
 }
 
@@ -1160,6 +1211,7 @@ let fieldDraft = { key: '', value: '' };
 let requestInFlight = false;
 let intakeError = '';
 let confirmDiscard = false;
+let planMenuOpen = false;
 
 function onSubmitIntake() {
   const brief = intakeDraft.trim();
@@ -1302,7 +1354,9 @@ function completeCurrentSubtask() {
 
   state.subtasks[index].done = true;
   confirmDiscard = false;
-  state.xp += 10;
+  const xpBefore = state.xp;
+  state.xp = Math.min(state.xp + 10, MAX_XP);
+  const xpGained = state.xp - xpBefore;
   state.currentSubtaskIndex += 1;
   const nextStep = state.subtasks[state.currentSubtaskIndex];
   if (nextStep && nextStep.kind === 'question') startExpand(state.currentSubtaskIndex);
@@ -1322,10 +1376,10 @@ function completeCurrentSubtask() {
   // caused the evolve animation to falsely re-fire on the next page load).
   render();
   saveState();
-  playCompleteAnimation();
+  playCompleteAnimation(xpGained);
 }
 
-function playCompleteAnimation() {
+function playCompleteAnimation(xpGained) {
   const widget = document.getElementById('studbud-task-widget');
   if (!widget) return;
   const avatar = document.getElementById('studbud-avatar');
@@ -1336,11 +1390,13 @@ function playCompleteAnimation() {
   glowTargets.forEach((el) => el.classList.add('studbud-step-complete'));
   setTimeout(() => glowTargets.forEach((el) => el.classList.remove('studbud-step-complete')), 700);
 
-  const pop = document.createElement('div');
-  pop.className = 'studbud-xp-pop';
-  pop.textContent = '+10 XP';
-  widget.appendChild(pop);
-  setTimeout(() => pop.remove(), 900);
+  if (xpGained > 0) { // no popup once XP is capped
+    const pop = document.createElement('div');
+    pop.className = 'studbud-xp-pop';
+    pop.textContent = `+${xpGained} XP`;
+    widget.appendChild(pop);
+    setTimeout(() => pop.remove(), 900);
+  }
 }
 
 // ---------- Focus sessions ----------
@@ -1359,7 +1415,7 @@ function startFocusSession() {
 
 function stopFocusSession(awardBonus) {
   if (awardBonus) {
-    state.xp += FOCUS_BONUS_XP;
+    state.xp = Math.min(state.xp + FOCUS_BONUS_XP, MAX_XP);
   }
   state.focusSession = null;
   stopFocusTicking();
@@ -1447,7 +1503,7 @@ avatar.title = (state.focusSession ? 'Focusing...' : stageConfig.label) +
   const xpLabel = document.getElementById('studbud-avatar-xp');
   xpLabel.textContent = nextThreshold !== null
     ? `${state.xp}/${nextThreshold} XP`
-    : `${state.xp} XP (max)`;
+    : `${state.xp} XP (Max)`;
 
   renderAvatarName();
 
@@ -1464,6 +1520,8 @@ avatar.title = (state.focusSession ? 'Focusing...' : stageConfig.label) +
   lastStepKey = stepKey;
 
   renderCurrentSubtask();
+  applyProgressBars();
+  updatePlanMenu();
   renderMini();
 }
 
@@ -1476,6 +1534,26 @@ function renderAvatarName() {
   }
   const card = document.getElementById('studbud-name-card');
   if (card) card.classList.toggle('studbud-hidden', !!avatarProfile.chosen);
+}
+
+// The menu is only offered while a plan is in progress (the clarify and done views have their own buttons).
+function updatePlanMenu() {
+  const btn = document.getElementById('studbud-task-menu');
+  const pop = document.getElementById('studbud-task-menu-pop');
+  const item = document.getElementById('studbud-menu-new');
+  if (!btn || !pop || !item) return;
+  const planActive = !requestInFlight && !state.clarify && state.subtasks.length > 0
+    && state.currentSubtaskIndex < state.subtasks.length;
+  const show = planActive && !state.taskWidgetMinimized;
+  if (!show) {
+    planMenuOpen = false;
+    confirmDiscard = false;
+  }
+  btn.classList.toggle('studbud-hidden', !show);
+  pop.classList.toggle('studbud-hidden', !show || !planMenuOpen);
+  btn.setAttribute('aria-expanded', String(planMenuOpen));
+  item.textContent = confirmDiscard ? 'Click again to discard this plan' : 'Start a new assignment';
+  item.classList.toggle('studbud-menu-confirm', confirmDiscard);
 }
 
 function renderCurrentSubtask() {
@@ -1498,6 +1576,7 @@ function renderCurrentSubtask() {
   } else if (currentSubtaskIndex >= subtasks.length) {
     container.innerHTML = `
       <div class="studbud-step-done">All steps done! 🎉</div>
+      ${(usage.completedPlans || 0) === 1 ? '<div class="studbud-thanks-center">Thank you for trying StudBud!</div>' : ''}
       <div id="studbud-feedback-slot"></div>
       <button id="studbud-new-task" class="studbud-primary-btn">Start a new assignment</button>
       ${focusSlot}`;
@@ -1529,6 +1608,7 @@ function waitlistHtml() {
       <div id="studbud-waitlist-error" class="studbud-error studbud-hidden"></div>
       <button id="studbud-waitlist-submit" class="studbud-primary-btn">Join the waitlist</button>
       <div class="studbud-note">We'll only email you when unlimited access launches.</div>
+      <button id="studbud-waitlist-decline" class="studbud-link-btn" type="button">No thanks</button>
     </div>`;
 }
 
@@ -1537,6 +1617,15 @@ function wireWaitlist(container) {
   const btn = container.querySelector('#studbud-waitlist-submit');
   const err = container.querySelector('#studbud-waitlist-error');
   if (!input || !btn || !err) return; // already joined
+  const decline = container.querySelector('#studbud-waitlist-decline');
+  if (decline) {
+    decline.addEventListener('click', () => {
+      usage.waitlistDeclined = true;
+      waitlistDraft = '';
+      saveUsage();
+      render(); // the limit wall re-renders without the waitlist form
+    });
+  }
   input.value = waitlistDraft; // set as a property, not an HTML attribute: escapeHtml() does not escape quotes
 
   // Typing must not trigger the host page's keyboard shortcuts.
@@ -1589,7 +1678,6 @@ function wireWaitlist(container) {
 // There is no billing yet: "Upgrade" is a demand test, so the copy says so.
 function renderUpgradeWall(container, focusSlot) {
   const n = usage.completedPlans || 0;
-  const value = n > 0 ? `and completed ${n} assignment${n === 1 ? '' : 's'} with StudBud! ` : '';
 
   if (!usage.limitHit) {
     usage.limitHit = true; // send limit_hit once per install
@@ -1609,14 +1697,42 @@ function renderUpgradeWall(container, focusSlot) {
     // The waitlist is offered only to students who said yes/maybe to paying (they have a priceChoice).
     // 'none' is what older builds stored for "not interested".
     const interested = !!usage.priceChoice && usage.priceChoice !== 'none';
+    const showWaitlist = interested && !usage.waitlistDeclined; // "No thanks" hides the form for good
+
+    // Joined the waitlist: the thank-you is the whole screen (render() runs right after a successful join).
+    if (interested && usage.waitlistJoined) {
+      container.innerHTML = `
+        <div class="studbud-thanks-center studbud-thanks-screen">Thank you for trying StudBud!</div>
+        <div class="studbud-upsell-thanks">You're on the list! We'll email you when unlimited access launches.</div>
+        ${focusSlot}`;
+      return;
+    }
+
     container.innerHTML = `
       <div class="studbud-intake-title">Thanks — You're helping us make StudBud better!</div>
-      <div class="studbud-intake-sub">Unlimited access isn't available... yet.${interested ? ' Join the waitlist to be the first to know!' : ''}</div>
-      ${interested ? waitlistHtml() : ''}
+      <div class="studbud-intake-sub">Unlimited access isn't available... yet.${showWaitlist ? ' Join the waitlist to be the first to know!' : ''}</div>
+      ${showWaitlist ? waitlistHtml() : ''}
+      ${interested && usage.waitlistDeclined ? '<div class="studbud-thanks-center">Thank you for trying StudBud!</div>' : ''}
       <div id="studbud-feedback-slot"></div>
       ${focusSlot}`;
-    if (interested) wireWaitlist(container);
+    if (showWaitlist) wireWaitlist(container);
     mountFeedback('limit_hit');
+    return;
+  }
+
+  // First time at the wall: a thank-you / "you've hit the limit" screen before any survey question.
+  if (!usage.limitIntroSeen) {
+    const played = n > 0 ? ` and completed ${n} assignment${n === 1 ? '' : 's'} with StudBud` : '';
+    container.innerHTML = `
+      <div class="studbud-intake-title">Thank you for trying StudBud!</div>
+      <div class="studbud-intake-sub">You've hit the free beta limit of ${ANALYSIS_LIMIT} analyses${played}. Unlimited access isn't available... yet!</div>
+      <button id="studbud-limit-continue" class="studbud-primary-btn" type="button">Continue</button>
+      ${focusSlot}`;
+    container.querySelector('#studbud-limit-continue').addEventListener('click', () => {
+      usage.limitIntroSeen = true;
+      saveUsage();
+      render();
+    });
     return;
   }
 
@@ -1636,7 +1752,7 @@ function renderUpgradeWall(container, focusSlot) {
   if (!use) {
     ask(
       'Would you use StudBud on your next assignment?',
-      `You've used all ${ANALYSIS_LIMIT} beta analyses ${value}Unlimited access isn't available... yet! Your answers help us improve StudBud!`,
+      'Your answers help us improve StudBud!',
       [['yes', 'Yes'], ['no', 'No']],
       (v) => {
         usage.useChoice = v;
@@ -1650,7 +1766,7 @@ function renderUpgradeWall(container, focusSlot) {
 
   if (!pay) {
     ask(
-      'Would you pay for unlimited assignment upload & breakdown and unlimited StudBud chat help?',
+      'Would you pay for unlimited assignment breakdown and StudBud chat help?',
       '',
       [['yes', 'Yes'], ['maybe', 'Maybe, depends on the price'], ['no', 'No']],
       (v) => {
@@ -1775,6 +1891,47 @@ function progressText() {
   return `Step ${i + 1} of ${steps.length}`;
 }
 
+// "+N XP" reward label; replaced by "(XP Max)" once the XP cap is reached, since no XP is awarded then.
+function xpBadgeHtml(amount) {
+  return state.xp >= MAX_XP
+    ? '<span class="studbud-step-xp studbud-step-xp-max">(XP Max)</span>'
+    : `<span class="studbud-step-xp">+${amount} XP</span>`;
+}
+
+// 0..1 fraction of the plan completed. Mirrors progressText(): per-question inside worksheets, per-step otherwise.
+function progressFraction() {
+  const steps = state.subtasks;
+  const i = state.currentSubtaskIndex;
+  if (!steps.length) return 0;
+  const cur = steps[i];
+  if (cur && cur.gid != null) {
+    const gids = [...new Set(steps.filter((x) => x.gid != null).map((x) => x.gid))];
+    let within = 0;
+    if (cur.kind !== 'question') {
+      let start = i;
+      let end = i;
+      while (start > 0 && steps[start - 1].gid === cur.gid) start -= 1;
+      while (end < steps.length - 1 && steps[end + 1].gid === cur.gid) end += 1;
+      within = (i - start) / (end - start + 1);
+    }
+    return Math.min(1, (gids.indexOf(cur.gid) + within) / gids.length);
+  }
+  return Math.min(1, i / steps.length);
+}
+
+function progressBarHtml() {
+  const pct = Math.round(progressFraction() * 100);
+  // Width is applied from JS (applyProgressBars) rather than an inline style attribute, so host-page CSP can't block it.
+  return `<div class="studbud-progress-track" role="progressbar" aria-label="Assignment progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" data-pct="${pct}"><div class="studbud-progress-fill"></div></div>`;
+}
+
+function applyProgressBars() {
+  document.querySelectorAll('#studbud-subtask-current [data-pct]').forEach((el) => {
+    const fill = el.firstElementChild;
+    if (fill) fill.style.width = `${el.dataset.pct}%`;
+  });
+}
+
 function stepHeaderHtml(step) {
   const title = (state.taskTitle || state.currentTask || '').slice(0, 60);
   const group = step.kind !== 'question' && step.group ? `<div class="studbud-group">${escapeHtml(step.group)}</div>` : '';
@@ -1782,24 +1939,8 @@ function stepHeaderHtml(step) {
   return `
     <div class="studbud-current-task">Current Task: ${escapeHtml(title)}</div>
     <div class="studbud-step-progress">${progressText()}</div>
+    ${progressBarHtml()}
     ${group}${ask}`;
-}
-
-function planFooterHtml() {
-  return `<button id="studbud-new-task" class="studbud-link-btn">${confirmDiscard ? 'Click again to discard this plan' : 'Start a new assignment'}</button>`;
-}
-
-function wirePlanFooter() {
-  const btn = document.getElementById('studbud-new-task');
-  if (!btn) return;
-  btn.addEventListener('click', () => {
-    if (!confirmDiscard) {
-      confirmDiscard = true;
-      render();
-      return;
-    }
-    resetPlan();
-  });
 }
 
 function renderQuestionStep(container, focusSlot, step, index) {
@@ -1809,7 +1950,7 @@ function renderQuestionStep(container, focusSlot, step, index) {
     : `<div class="studbud-step-text">${escapeHtml(step.text)}</div>
        <div class="studbud-step-detail">${expandError ? 'Could not load the steps for this question.' : "Steps for this question aren't loaded yet."}</div>
        <button id="studbud-expand-btn" class="studbud-primary-btn">${expandError ? 'Try again' : 'Load steps'}</button>`;
-  container.innerHTML = `${stepHeaderHtml(step)}${body}${focusSlot}${planFooterHtml()}`;
+  container.innerHTML = `${stepHeaderHtml(step)}${body}${focusSlot}`;
 
   const btn = document.getElementById('studbud-expand-btn');
   if (btn) {
@@ -1818,7 +1959,6 @@ function renderQuestionStep(container, focusSlot, step, index) {
       render();
     });
   }
-  wirePlanFooter();
 }
 
 function renderStep(container, focusSlot) {
@@ -1839,12 +1979,11 @@ function renderStep(container, focusSlot) {
 
   container.innerHTML = `
     ${stepHeaderHtml(step)}
-    <div class="studbud-step-text">${escapeHtml(step.text)} <span class="studbud-step-xp">+10 XP</span></div>
+    <div class="studbud-step-text">${escapeHtml(step.text)} ${xpBadgeHtml(10)}</div>
     ${step.detail ? `<div class="studbud-step-detail">${escapeHtml(step.detail)}</div>` : ''}
     ${copyBlock}
     ${focusSlot}
     <button id="studbud-step-next">Next Step →</button>
-    ${planFooterHtml()}
   `;
 
   document.getElementById('studbud-step-next').addEventListener('click', completeCurrentSubtask);
@@ -1854,7 +1993,6 @@ function renderStep(container, focusSlot) {
       flashCopyResult(copyBtn, copyRich(escapeHtml(step.copyText).replace(/\n/g, '<br>'), step.copyText), 'Copy to clipboard');
     });
   }
-  wirePlanFooter();
 }
 
 // Shows "Copied ✓" / "Copy failed" on the button briefly, then restores its label.
@@ -1871,7 +2009,7 @@ function renderCitationStep(container, focusSlot, step) {
   const cite = step.cite;
   const styleLabel = step.style === 'apa7' ? 'APA 7' : 'MLA 9';
   const head = `${stepHeaderHtml(step)}
-    <div class="studbud-step-text">${escapeHtml(step.text)} <span class="studbud-step-xp">+10 XP</span></div>
+    <div class="studbud-step-text">${escapeHtml(step.text)} ${xpBadgeHtml(10)}</div>
     ${step.detail ? `<div class="studbud-step-detail">${escapeHtml(step.detail)}</div>` : ''}`;
 
   // 1) choose the source type
@@ -1882,8 +2020,7 @@ function renderCitationStep(container, focusSlot, step) {
       <div class="studbud-type-row">
         ${CITE_TYPES.map((t) => `<button class="studbud-type-btn" data-type="${t.id}">${t.label}</button>`).join('')}
       </div>
-      ${focusSlot}
-      ${planFooterHtml()}`;
+      ${focusSlot}`;
     container.querySelectorAll('.studbud-type-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         cite.type = btn.dataset.type;
@@ -1893,7 +2030,6 @@ function renderCitationStep(container, focusSlot, step) {
         render();
       });
     });
-    wirePlanFooter();
     return;
   }
 
@@ -1919,8 +2055,7 @@ function renderCitationStep(container, focusSlot, step) {
       ${isAuthors ? '<div class="studbud-note">One author per line as Last, First. For an organization, type its name.</div><div id="studbud-author-preview" class="studbud-author-preview"></div>' : ''}
       <button id="studbud-cite-next" class="studbud-primary-btn">Next</button>
       <button id="studbud-cite-back" class="studbud-link-btn">← Back</button>
-      ${focusSlot}
-      ${planFooterHtml()}`;
+      ${focusSlot}`;
 
     const input = document.getElementById('studbud-cite-input');
     const next = document.getElementById('studbud-cite-next');
@@ -1950,7 +2085,6 @@ function renderCitationStep(container, focusSlot, step) {
       render();
     });
     update();
-    wirePlanFooter();
     return;
   }
 
@@ -1964,8 +2098,7 @@ function renderCitationStep(container, focusSlot, step) {
     <button id="studbud-cite-copy" class="studbud-primary-btn">Copy citation</button>
     <button id="studbud-step-next">Done — Next Step →</button>
     <button id="studbud-cite-back" class="studbud-link-btn">← Edit fields</button>
-    ${focusSlot}
-    ${planFooterHtml()}`;
+    ${focusSlot}`;
 
   const copyBtn = document.getElementById('studbud-cite-copy');
   copyBtn.addEventListener('click', () => flashCopyResult(copyBtn, copyRich(out.html, out.text), 'Copy citation'));
@@ -1975,7 +2108,6 @@ function renderCitationStep(container, focusSlot, step) {
     saveState();
     render();
   });
-  wirePlanFooter();
 }
 
 function renderFocusArea() {
@@ -2042,7 +2174,7 @@ function renderFocusControls() {
     `;
   }
   return `
-    <button id="studbud-focus-start">Start 25-min focus session <span class="studbud-step-xp">+5 XP</span></button>
+    <button id="studbud-focus-start">Start 25-min focus session ${xpBadgeHtml(FOCUS_BONUS_XP)}</button>
   `;
 }
 

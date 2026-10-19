@@ -6,6 +6,8 @@
 // Reads events:u:<anonId> hashes (SCAN) and the events:durations list written by api/events.js.
 // Users without `steps_total` (pre-0.1.1 installs) are excluded from the plan-size metrics, not counted as 0.
 // Users without `intake_started` (older clients) are excluded from the intake-success metric.
+// Also reads the interest:events list written by api/interest.js and reports UNIQUE clickers per coming-soon
+// feature and per integration (repeat clicks from the same anon id count once; raw interest:count:* keys do not dedupe).
 // Optional: STUDBUD_EXCLUDE_IDS=id1,id2 drops those anon install ids (e.g. your dev install) before summarizing.
 // Note: the events:durations list is anonymous, so excluded ids' durations cannot be removed from it.
 
@@ -92,6 +94,43 @@ export function summarize(users, durations, todayIso = new Date().toISOString().
   return out;
 }
 
+// Coming-soon interest: unique anon ids per feature / integration from the interest:events list.
+// Denominator is installs (users with any recorded event). Panel opens are not tracked, so this is a
+// lower bound on interest among users who actually saw the cards.
+export function summarizeInterest(events, installs, excludeIds = new Set()) {
+  const rows = events
+    .map((e) => {
+      if (typeof e !== 'string') return e;
+      try { return JSON.parse(e); } catch { return null; }
+    })
+    .filter((e) => e && typeof e.anonId === 'string' && typeof e.feature === 'string' && !excludeIds.has(e.anonId));
+
+  const byFeature = {};
+  const integrations = {};
+  const integrationSets = {};
+  for (const e of rows) {
+    const f = (byFeature[e.feature] ||= { rawClicks: 0, ids: new Set() });
+    f.rawClicks += 1;
+    f.ids.add(e.anonId);
+    for (const i of Array.isArray(e.integrations) ? e.integrations : []) {
+      (integrationSets[i] ||= new Set()).add(e.anonId);
+    }
+  }
+
+  const out = { features: {}, integrationsUniqueUsers: {} };
+  for (const [name, f] of Object.entries(byFeature)) {
+    out.features[name] = {
+      uniqueUsers: f.ids.size,
+      rawClicks: f.rawClicks,
+      pctOfInstalls: pct(f.ids.size, installs),
+    };
+  }
+  for (const [name, set] of Object.entries(integrationSets)) integrations[name] = set.size;
+  out.integrationsUniqueUsers = integrations;
+  out.note = installs < MIN_N ? `installs<${MIN_N}, anecdotal` : 'pctOfInstalls is a lower bound (panel opens are not tracked)';
+  return out;
+}
+
 async function main() {
   const { Redis } = await import('@upstash/redis');
   const url = process.env.STUDBUD_INTEREST_KV_REST_API_URL;
@@ -116,7 +155,11 @@ async function main() {
   }
   const durations = await redis.lrange('events:durations', 0, 999);
 
-  console.log(JSON.stringify(summarize(users, durations), null, 2));
+  const rawInterest = await redis.lrange('interest:events', 0, -1);
+  const result = summarize(users, durations);
+  result.interest = summarizeInterest(rawInterest, users.length, exclude);
+
+  console.log(JSON.stringify(result, null, 2));
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {

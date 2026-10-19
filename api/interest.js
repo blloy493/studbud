@@ -17,7 +17,7 @@ const redis = new Redis({
   token: process.env.STUDBUD_INTEREST_KV_REST_API_TOKEN,
 });
 
-const VALID_FEATURES = new Set(['parser', 'injection_system']);
+const VALID_FEATURES = new Set(['parser', 'injection_system', 'draft_check', 'study_mode']);
 const MAX_INTEGRATIONS = 20; // abuse guard, not a real limit — we only ever send ~8
 
 export default async function handler(req, res) {
