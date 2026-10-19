@@ -82,6 +82,8 @@ export async function guard(req, res, { name, ipDailyCap, globalDailyCap }) {
     return false;
   }
 
+  console.warn(`[guard:${name}] ip cap hit (${ipDailyCap})`);
+  
   const r = getRedis();
   if (!r) return true;
 
