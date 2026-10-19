@@ -17,16 +17,21 @@ import { guard } from './_lib/guard.js';
 // stuck_open: the student clicked "I'm stuck on this step" (the click only; the help request itself is counted in stuck.js).
 // intake_started: the student typed or pasted into the intake box (sent by newer clients). Funnel denominator for
 // intake success = users with intake_started > 0; numerator = users with plan_created > 0. Count only, no text.
+// abandon_<reason>: the student discarded a plan in progress and tapped a reason (abandon_skip = no reason given).
+// `steps` on these events = steps already completed in that plan (0-100); summed into abandon_steps_done so
+// abandon_steps_done / total abandon events = average steps done at discard. Counts only, no text.
 // finish_*, upgrade_click and price_* are no longer sent by the extension; kept so older installs still record.
 const PAY_EVENTS = ['pay_no'];
 for (const answer of ['yes', 'maybe']) {
   for (const price of ['lt3', '3', '5', '8']) PAY_EVENTS.push(`pay_${answer}_${price}`);
 }
+const ABANDON_EVENTS = ['abandon_many', 'abandon_unclear', 'abandon_wrong', 'abandon_other_way', 'abandon_other', 'abandon_skip'];
 const EVENTS = new Set([
   'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
   'use_yes', 'use_no', 'waitlist_join', 'stuck_open', 'intake_started',
   ...PAY_EVENTS,
+  ...ABANDON_EVENTS,
 ]);
 const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 
@@ -64,6 +69,9 @@ export default async function handler(req, res) {
     // steps_total / plan_created = average steps per plan.
     if ((name === 'plan_created' || name === 'steps_added') && Number.isInteger(steps) && steps >= 1 && steps <= 100) {
       p.hincrby(key, 'steps_total', steps);
+    }
+    if (name.startsWith('abandon_') && Number.isInteger(steps) && steps >= 0 && steps <= 100) {
+      p.hincrby(key, 'abandon_steps_done', steps);
     }
     if (name === 'plan_completed' && Number.isFinite(elapsedSec) && elapsedSec >= 0) {
       p.lpush('events:durations', Math.round(elapsedSec));

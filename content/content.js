@@ -8,7 +8,7 @@ const SETTINGS_KEY = 'studbudSettings';
 // Avatar name lives in its own key (not STATE_KEY) so "Reset progress" in the
 // popup, which only removes STATE_KEY, cannot erase it.
 const AVATAR_KEY = 'studbudAvatar';
-const DEFAULT_NAME = 'Hoot';
+const DEFAULT_NAME = 'Olly';
 const MAX_NAME_LEN = 16;
 const DEFAULT_AVATAR = { name: DEFAULT_NAME, chosen: false }; // chosen = student has answered the naming prompt
 let avatarProfile = { ...DEFAULT_AVATAR };
@@ -970,8 +970,11 @@ function buildTaskWidget() {
       updatePlanMenu();
       return;
     }
+    // Second click: ask why before discarding (see renderAbandonPrompt). The plan is only reset once a reason or Skip is chosen.
     planMenuOpen = false;
-    resetPlan();
+    confirmDiscard = false;
+    abandonPrompt = true;
+    render();
   });
   document.addEventListener('mousedown', (e) => {
     if (!planMenuOpen) return;
@@ -1014,7 +1017,8 @@ function buildTaskWidget() {
 // ---------- Beta analytics ----------
 // Anonymous counters only (see api/events.js). No assignment text or answers are ever sent.
 // Events: intake_started | plan_created | steps_added | step_completed | plan_completed | limit_hit | use_yes | use_no |
-//         pay_no | pay_{yes|maybe}_{lt3|3|5|8} | waitlist_join   (must match EVENTS in api/events.js)
+//         pay_no | pay_{yes|maybe}_{lt3|3|5|8} | waitlist_join | abandon_{many|unclear|wrong|other_way|other|skip}
+//         (must match EVENTS in api/events.js)
 // `steps` (plan_created, steps_added) is a count only: plan size at creation, then the net steps added when a
 // worksheet question is expanded into micro-steps. The server sums both into steps_total.
  
@@ -1212,6 +1216,7 @@ let requestInFlight = false;
 let intakeError = '';
 let confirmDiscard = false;
 let planMenuOpen = false;
+let abandonPrompt = false; // true while the "why start over?" reason prompt replaces the step view
 
 function onSubmitIntake() {
   const brief = intakeDraft.trim();
@@ -1339,6 +1344,7 @@ function resetPlan() {
   state.clarify = null;
   state.planStartedAt = null;
   confirmDiscard = false;
+  abandonPrompt = false;
   intakeError = '';
   fbThanks = false;
   fbAnswer = null;
@@ -1544,7 +1550,8 @@ function updatePlanMenu() {
   if (!btn || !pop || !item) return;
   const planActive = !requestInFlight && !state.clarify && state.subtasks.length > 0
     && state.currentSubtaskIndex < state.subtasks.length;
-  const show = planActive && !state.taskWidgetMinimized;
+  if (!planActive) abandonPrompt = false; // plan finished or discarded elsewhere (another tab): drop a stale prompt
+  const show = planActive && !state.taskWidgetMinimized && !abandonPrompt;
   if (!show) {
     planMenuOpen = false;
     confirmDiscard = false;
@@ -1556,6 +1563,44 @@ function updatePlanMenu() {
   item.classList.toggle('studbud-menu-confirm', confirmDiscard);
 }
 
+// ---- Abandon reason (shown when a plan in progress is discarded from the header menu) ----
+// One tap, counter-only: sends abandon_<key> with the number of steps already completed (see api/events.js).
+// Discarding from the finished view is not an abandon and never goes through here.
+const ABANDON_REASONS = [
+  { key: 'many', label: 'Too many steps' },
+  { key: 'unclear', label: 'Steps were unclear' },
+  { key: 'wrong', label: "Not what I needed" },
+  { key: 'other_way', label: 'I finished it another way' },
+  { key: 'other', label: 'Something else' },
+];
+
+function renderAbandonPrompt(container, focusSlot) {
+  container.innerHTML = `
+    <div class="studbud-intake-title">Why start over?</div>
+    <div class="studbud-intake-sub">One tap helps us fix StudBud. Anonymous.</div>
+    <div class="studbud-type-row">
+      ${ABANDON_REASONS.map((r) => `<button type="button" class="studbud-type-btn" data-abandon="${r.key}">${escapeHtml(r.label)}</button>`).join('')}
+    </div>
+    <button id="studbud-abandon-skip" type="button" class="studbud-link-btn">Skip and start over</button>
+    <button id="studbud-abandon-keep" type="button" class="studbud-primary-btn">Keep my plan</button>
+    ${focusSlot}`;
+
+  container.querySelectorAll('[data-abandon]').forEach((b) => {
+    b.addEventListener('click', () => finishAbandon(b.dataset.abandon));
+  });
+  document.getElementById('studbud-abandon-skip').addEventListener('click', () => finishAbandon('skip'));
+  document.getElementById('studbud-abandon-keep').addEventListener('click', () => {
+    abandonPrompt = false;
+    render();
+  });
+}
+
+function finishAbandon(key) {
+  const stepsDone = state.subtasks.filter((st) => st.done).length;
+  trackEvent(`abandon_${key}`, undefined, stepsDone);
+  resetPlan(); // also clears abandonPrompt
+}
+
 function renderCurrentSubtask() {
   const container = document.getElementById('studbud-subtask-current');
   const { subtasks, currentSubtaskIndex } = state;
@@ -1564,7 +1609,7 @@ function renderCurrentSubtask() {
   const focusSlot = `<div id="studbud-focus-area"></div>`;
 
   if (requestInFlight) {
-    container.innerHTML = `<div class="studbud-loading">Breaking your assignment down...</div>${focusSlot}`;
+    container.innerHTML = `<div class="studbud-loading">Breaking down your assignment...</div>${focusSlot}`;
     renderFocusArea();
     return;
   }
@@ -1581,7 +1626,9 @@ function renderCurrentSubtask() {
       <button id="studbud-new-task" class="studbud-primary-btn">Start a new assignment</button>
       ${focusSlot}`;
     document.getElementById('studbud-new-task').addEventListener('click', resetPlan);
-    mountFeedback('completion');
+    if ((usage.completedPlans || 0) === 1) mountFeedback('completion');
+  } else if (abandonPrompt) {
+    renderAbandonPrompt(container, focusSlot);
   } else {
     renderStep(container, focusSlot);
   }
@@ -1766,7 +1813,7 @@ function renderUpgradeWall(container, focusSlot) {
 
   if (!pay) {
     ask(
-      'Would you pay for unlimited assignment breakdown and StudBud chat help?',
+      'Would you pay for unlimited assignment breakdowns and StudBud chat help?',
       '',
       [['yes', 'Yes'], ['maybe', 'Maybe, depends on the price'], ['no', 'No']],
       (v) => {
@@ -1801,7 +1848,7 @@ function renderIntake(container, focusSlot) {
   }
 
   container.innerHTML = `
-    <div class="studbud-intake-title">Paste your question / assignment</div>
+    <div class="studbud-intake-title">Paste your assignment</div>
     <div class="studbud-intake-sub">Include the prompt, requirements, and rubric if you have them. Your steps are built from this text.</div>
     <textarea id="studbud-task-input" rows="6" maxlength="${MAX_BRIEF_CHARS}" placeholder="Paste your full assignment instructions here"></textarea>
     <div class="studbud-intake-meta"><span id="studbud-intake-hint"></span><span>${left} of ${ANALYSIS_LIMIT} analyses left</span></div>

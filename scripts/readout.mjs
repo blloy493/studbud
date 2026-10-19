@@ -91,6 +91,24 @@ export function summarize(users, durations, todayIso = new Date().toISOString().
   }
   out.waitlistJoins = c('waitlist_join');
   out.stuckOpen = c('stuck_open');
+
+  // Abandon reasons: a student discarded a plan in progress and tapped a reason (abandon_skip = no reason).
+  // Counts are DISCARD EVENTS (one student can discard more than once), not users.
+  // avgStepsDoneAtDiscard only uses users whose clients reported abandon_steps_done.
+  const ABANDON_KEYS = ['many', 'unclear', 'wrong', 'other_way', 'other', 'skip'];
+  const abandonOf = (u) => sum(ABANDON_KEYS.map((k) => num(u[`abandon_${k}`])));
+  const byReason = {};
+  for (const k of ABANDON_KEYS) byReason[k] = sum(users.map((u) => num(u[`abandon_${k}`])));
+  const totalDiscards = sum(ABANDON_KEYS.map((k) => byReason[k]));
+  const withSteps = users.filter((u) => u.abandon_steps_done !== undefined);
+  const stepEvents = sum(withSteps.map(abandonOf));
+  out.abandon = {
+    totalDiscards,
+    usersWhoDiscarded: users.filter((u) => abandonOf(u) > 0).length,
+    discardsPerPlanCreated: pct(totalDiscards, created),
+    byReason,
+    avgStepsDoneAtDiscard: stepEvents ? (sum(withSteps.map((u) => num(u.abandon_steps_done))) / stepEvents).toFixed(1) : 'n/a',
+  };
   return out;
 }
 
