@@ -1055,4 +1055,11 @@
   padding: 24px 0 8px;
 }
 
-
+/* Pin the typeface so host pages can't restyle the widget. The id + * selector beats host element/class
+   rules, and !important beats host !important rules. */
+   #studbud-avatar,
+   #studbud-task-widget,
+   #studbud-avatar *,
+   #studbud-task-widget * {
+     font-family: system-ui, sans-serif !important;
+   }
