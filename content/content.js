@@ -1291,6 +1291,7 @@ function toStep(s, gid) {
 
 let expandingIndex = null;   // index of the question step currently being expanded in THIS tab
 let expandError = false;
+let expandLimitMsg = '';     // server's daily-cap message when an expand was refused by a cap (retrying now will not help)
 let expandSeq = 0;           // invalidates stale responses after a reset
 
 function startExpand(index) {
@@ -1300,6 +1301,7 @@ function startExpand(index) {
   const brief = state.currentTask;
   expandingIndex = index;
   expandError = false;
+  expandLimitMsg = '';
 
   sendBreakdown(
     { mode: 'expand', brief, label: step.text, ask: step.ask },
@@ -1317,6 +1319,11 @@ function startExpand(index) {
         response.status !== 'ready' || !Array.isArray(response.steps) || response.steps.length === 0;
       if (failed) {
         expandError = true;
+        // Daily-cap messages (per-user, per-network or global) say retrying now will not help, so show them as written.
+        const serverMsg = response && typeof response.error === 'string' ? response.error : '';
+        if (response && (response.limit || /tomorrow/i.test(serverMsg))) {
+          expandLimitMsg = serverMsg || 'Daily limit reached. Back tomorrow.';
+        }
         render();
         return;
       }
@@ -1336,6 +1343,7 @@ function resetPlan() {
   expandSeq += 1; // drop any in-flight question expansion
   expandingIndex = null;
   expandError = false;
+  expandLimitMsg = '';
   state.subtasks = [];
   state.currentSubtaskIndex = 0;
   state.taskTitle = null;
@@ -1995,7 +2003,7 @@ function renderQuestionStep(container, focusSlot, step, index) {
   const body = loading
     ? `<div class="studbud-loading">Breaking down ${escapeHtml(step.text.split(':')[0])}…</div>`
     : `<div class="studbud-step-text">${escapeHtml(step.text)}</div>
-       <div class="studbud-step-detail">${expandError ? 'Could not load the steps for this question.' : "Steps for this question aren't loaded yet."}</div>
+       <div class="studbud-step-detail">${expandLimitMsg ? `${escapeHtml(expandLimitMsg)} Your plan is saved.` : expandError ? 'Could not load the steps for this question.' : "Steps for this question aren't loaded yet."}</div>
        <button id="studbud-expand-btn" class="studbud-primary-btn">${expandError ? 'Try again' : 'Load steps'}</button>`;
   container.innerHTML = `${stepHeaderHtml(step)}${body}${focusSlot}`;
 

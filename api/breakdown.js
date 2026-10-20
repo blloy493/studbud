@@ -253,17 +253,19 @@ function sanitizeStep(raw, index) {
 }
 
 export default async function handler(req, res) {
-  if (!(await guard(req, res, { name: 'breakdown', ipDailyCap: 600, globalDailyCap: 1500 }))) return;
+  // Plan and expand calls use separate guard buckets. A worksheet is 1 plan call plus up to 25 expand calls, which
+  // would otherwise exhaust the plan caps. req.body can be undefined on OPTIONS/GET; guard() rejects those itself.
+  const isExpand = !!req.body && req.body.mode === 'expand';
+  const guardOpts = isExpand
+    ? { name: 'breakdown_expand', ipDailyCap: 1500, globalDailyCap: 4000 } // guesses: tune from beta data
+    : { name: 'breakdown', ipDailyCap: 600, globalDailyCap: 1500 };
+  if (!(await guard(req, res, guardOpts))) return;
 
   const body = req.body || {};
 
   const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(userId)) {
     return res.status(400).json({ error: 'Update StudBud to the latest version and try again.' });
-  }
-  const isExpand = body.mode === 'expand';
-  if (!(await withinUserCap(isExpand ? 'breakdown_expand' : 'breakdown', userId, isExpand ? DAILY_EXPAND_CAP : DAILY_USER_CAP))) {
-    return res.status(429).json({ error: 'Daily limit reached. Come back tomorrow.', limit: true });
   }
 
   const brief = typeof body.brief === 'string' ? body.brief.trim() : '';
@@ -274,6 +276,12 @@ export default async function handler(req, res) {
   // Basic abuse guard: cap input length so a single request can't balloon cost.
   if (brief.length > MAX_BRIEF) {
     return res.status(400).json({ error: `Assignment text too long (max ${MAX_BRIEF} characters)` });
+  }
+
+  // Per-user cap runs after validation so malformed requests don't use up a student's daily calls,
+  // and before the expand branch (which returns early) so expand calls are capped too.
+  if (!(await withinUserCap(isExpand ? 'breakdown_expand' : 'breakdown', userId, isExpand ? DAILY_EXPAND_CAP : DAILY_USER_CAP))) {
+    return res.status(429).json({ error: 'Daily limit reached. Come back tomorrow.', limit: true });
   }
 
   if (isExpand) {
