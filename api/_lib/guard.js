@@ -82,8 +82,6 @@ export async function guard(req, res, { name, ipDailyCap, globalDailyCap }) {
     return false;
   }
 
-  console.warn(`[guard:${name}] ip cap hit (${ipDailyCap})`);
-  
   const r = getRedis();
   if (!r) return true;
 
@@ -91,6 +89,7 @@ export async function guard(req, res, { name, ipDailyCap, globalDailyCap }) {
     const day = today();
     const ipCount = await bumpDaily(r, `guard:ip:${name}:${ipHash(req)}:${day}`);
     if (ipCount > ipDailyCap) {
+      console.warn(`[guard:${name}] ip cap hit (${ipDailyCap})`);
       res.status(429).json({ error: 'Too many requests from this network today. Try again tomorrow.', limit: true });
       return false;
     }

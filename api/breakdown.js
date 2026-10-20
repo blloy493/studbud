@@ -21,14 +21,14 @@
 import { guard, withinUserCap } from './_lib/guard.js';
 
 const MIN_BRIEF = 40;
-const MAX_BRIEF = 8000; // keep in sync with MAX_BRIEF_CHARS in content.js
+const MAX_BRIEF = 9000; // keep in sync with MAX_BRIEF_CHARS in content.js
 const MAX_ANSWERS = 6;
 const MAX_ANSWER_LEN = 300;
 const MAX_ROUND = 2; // max clarification rounds before the model must produce a plan
 const MAX_STEPS = 30; // total, including the hardcoded first step
 const MAX_ASK = 500; // length cap for a question's text ('ask')
 const MAX_EXPAND_STEPS = 6; // micro-steps per expanded question
-const DAILY_USER_CAP = 15;   // plan calls (incl. clarification rounds) per userId per UTC day. A guess: tune from beta data.
+const DAILY_USER_CAP = 20;   // plan calls (incl. clarification rounds) per userId per UTC day. A guess: tune from beta data.
 const DAILY_EXPAND_CAP = 60; // worksheet 'expand' calls per userId per UTC day: one per question, and worksheets can have 25 questions
 
 const VALID_TYPES = [
@@ -313,7 +313,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const parsed = await callModel(system, userContent, 4000); // up to 29 steps with details
+    const parsed = await callModel(system, userContent, 5000); // up to 29 steps with details
 
     if (parsed && parsed.status === 'needs_info') {
       const questions = Array.isArray(parsed.questions)
