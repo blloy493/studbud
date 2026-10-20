@@ -21,7 +21,7 @@ const VALID_FEATURES = new Set(['parser', 'injection_system', 'draft_check', 'st
 const MAX_INTEGRATIONS = 20; // abuse guard, not a real limit — we only ever send ~8
 
 export default async function handler(req, res) {
-  if (!(await guard(req, res, { name: 'interest', ipDailyCap: 300, globalDailyCap: 2000 }))) return;
+  if (!(await guard(req, res, { name: 'interest', ipDailyCap: 1000, globalDailyCap: 2000 }))) return;
 
   const { anonId, feature, integrations, timestamp } = req.body || {};
 
