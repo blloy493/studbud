@@ -22,7 +22,7 @@
 import { guard, withinUserCap } from './_lib/guard.js';
 
 const MIN_BRIEF = 40;
-const MAX_BRIEF = 12000; // textarea text (MAX_BRIEF_CHARS = 9000 in content.js) + the figures block from api/readdoc.js (max 3000)
+const MAX_BRIEF = 12000; // textarea text (MAX_BRIEF_CHARS = 8000 in content.js) + the figures block from api/readdoc.js (max 3000)
 const MAX_ANSWERS = 6;
 const MAX_ANSWER_LEN = 300;
 const MAX_ROUND = 2; // max clarification rounds before the model must produce a plan

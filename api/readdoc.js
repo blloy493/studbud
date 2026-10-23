@@ -12,7 +12,7 @@
 import { guard, withinUserCap } from './_lib/guard.js';
 
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // base64 adds ~33%: ~4 MB on the wire, under Vercel's ~4.5 MB body limit
-const MAX_TEXT = 9000;                  // same as the intake textarea cap (MAX_BRIEF_CHARS in content.js)
+const MAX_TEXT = 8000;                  // must match the intake textarea cap (MAX_BRIEF_CHARS in content.js)
 const MAX_FIGURES = 12;
 const MAX_FIGURES_BLOCK = 3000;
 const MIN_USABLE = 40;                  // same as MIN_BRIEF in breakdown.js
