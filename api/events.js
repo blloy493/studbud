@@ -26,12 +26,19 @@ for (const answer of ['yes', 'maybe']) {
   for (const price of ['lt3', '3', '5', '8']) PAY_EVENTS.push(`pay_${answer}_${price}`);
 }
 const ABANDON_EVENTS = ['abandon_many', 'abandon_unclear', 'abandon_wrong', 'abandon_other_way', 'abandon_other', 'abandon_skip'];
+// upload_*: document upload funnel (counts only, no filenames or content). upload_figures = a read that found at least
+// one figure; upload_truncated = the document was longer than the text cap.
+const UPLOAD_EVENTS = [
+  'upload_started', 'upload_succeeded', 'upload_figures', 'upload_truncated',
+  'upload_failed_too_large', 'upload_failed_unreadable', 'upload_failed_error',
+];
 const EVENTS = new Set([
   'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
   'use_yes', 'use_no', 'waitlist_join', 'stuck_open', 'intake_started',
   ...PAY_EVENTS,
   ...ABANDON_EVENTS,
+  ...UPLOAD_EVENTS,
 ]);
 const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 
