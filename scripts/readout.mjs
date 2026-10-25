@@ -8,11 +8,15 @@
 // Users without `intake_started` (older clients) are excluded from the intake-success metric.
 // Also reads the interest:events list written by api/interest.js and reports UNIQUE clickers per coming-soon
 // feature and per integration (repeat clicks from the same anon id count once; raw interest:count:* keys do not dedupe).
+// Unlimited-beta unlock funnel (summarizeUnlock): reads the beta:granted set (written only by api/feedback.js), the
+// beta:plans:<anonId> lifetime plan counters (api/breakdown.js) and the feedback:responses list. Free text is never printed.
 // Optional: STUDBUD_EXCLUDE_IDS=id1,id2 drops those anon install ids (e.g. your dev install) before summarizing.
 // Note: the events:durations list is anonymous, so excluded ids' durations cannot be removed from it.
 
 const DAY_MS = 86400000;
 const PAY_PRICES = ['lt3', '3', '5', '8'];
+const FREE_PLAN_LIMIT = 3;        // keep in sync with BETA_PLAN_LIMIT in api/breakdown.js
+const PAY_SURVEY_AFTER_PLANS = 3; // keep in sync with PAY_SURVEY_AFTER_PLANS in content.js
 const MIN_N = 30; // decision rule: don't apply thresholds to a denominator below this (worst-case error > ±18 points)
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -149,6 +153,69 @@ export function summarizeInterest(events, installs, excludeIds = new Set()) {
   return out;
 }
 
+// Unlimited-beta unlock funnel. Inputs are plain data so this stays testable:
+//   feedbackRows: feedback:responses entries (JSON strings or objects)
+//   grantedIds:   members of the beta:granted set (installs the server unlocked)
+//   planCounts:   { anonId: lifetime ready plans } from beta:plans:<anonId>
+//   usersById:    { anonId: events hash } from events:u:<anonId>
+// Rows written before the unlock gate have no `granted` field and are left out of the unlock-rate numbers.
+// Totals per install (plans created/completed) cannot be split into before / after the unlock: events carry no timestamps.
+export function summarizeUnlock({ feedbackRows, grantedIds, planCounts, usersById, installs }, excludeIds = new Set()) {
+  const ok = (id) => typeof id === 'string' && !excludeIds.has(id);
+  const granted = new Set(grantedIds.filter(ok));
+  const rows = feedbackRows
+    .map((r) => {
+      if (typeof r !== 'string') return r;
+      try { return JSON.parse(r); } catch { return null; }
+    })
+    .filter((r) => r && ok(r.anonId) && r.trigger === 'completion');
+
+  // Completion cards that could have unlocked: sent by a gate-aware client (planId) to a gate-aware server (granted is a boolean).
+  const eligible = rows.filter((r) => typeof r.planId === 'string' && typeof r.granted === 'boolean');
+  const eligibleIds = new Set(eligible.map((r) => r.anonId));
+  const unlockedIds = [...eligibleIds].filter((id) => granted.has(id));
+  const stuckIds = [...eligibleIds].filter((id) => !granted.has(id)); // sent the card but never unlocked
+  const deniedSubmissions = eligible.filter((r) => !r.granted).length;
+
+  const ids = Object.keys(planCounts).filter(ok);
+  const atLimit = ids.filter((id) => num(planCounts[id]) >= FREE_PLAN_LIMIT);
+  const atLimitUnlocked = atLimit.filter((id) => granted.has(id));
+
+  const plansOf = (id, key) => num(usersById[id] && usersById[id][key]);
+  const avg = (list, key) => (list.length ? (sum(list.map((id) => plansOf(id, key))) / list.length).toFixed(1) : 'n/a');
+  const notUnlocked = Object.keys(usersById).filter((id) => ok(id) && !granted.has(id));
+
+  const hasPayAnswer = (id) => {
+    const u = usersById[id] || {};
+    return num(u.pay_no) > 0 || Object.keys(u).some((k) => /^pay_(yes|maybe)_/.test(k) && num(u[k]) > 0);
+  };
+  const payEligible = [...granted].filter((id) => plansOf(id, 'plan_completed') >= PAY_SURVEY_AFTER_PLANS);
+
+  const reuseOf = (ids2, v) => ids2.filter((id) => eligible.some((r) => r.anonId === id && r.reuse === v)).length;
+
+  return {
+    unlockedInstalls: granted.size,
+    unlockedPctOfInstalls: pct(granted.size, installs),
+    unlockRate: `${unlockedIds.length}/${eligibleIds.size} (${pct(unlockedIds.length, eligibleIds.size)}) of installs that sent a completion card` +
+      (eligibleIds.size < MIN_N ? ` - n<${MIN_N}, anecdotal` : ''),
+    completionCardsSent: rows.length,
+    cardsWithoutPlanId: rows.filter((r) => typeof r.granted === 'boolean' && typeof r.planId !== 'string').length, // plan record missing: cannot unlock
+    deniedSubmissions, // the reason is in the Vercel logs ("[feedback] no grant: ..."), not stored
+    sentCardButNeverUnlocked: stuckIds.length,
+    wouldUseNextAssignmentAmongUnlocked: { yes: reuseOf(unlockedIds, 'yes'), no: reuseOf(unlockedIds, 'no') },
+    atFreeLimit: { installs: atLimit.length, unlocked: atLimitUnlocked.length, stillBlocked: atLimit.length - atLimitUnlocked.length },
+    avgPlansPerInstall: {
+      unlocked: { created: avg([...granted], 'plan_created'), completed: avg([...granted], 'plan_completed') },
+      notUnlocked: { created: avg(notUnlocked, 'plan_created'), completed: avg(notUnlocked, 'plan_completed') },
+      note: 'totals include plans from before the unlock',
+    },
+    paySurvey: {
+      unlockedWithEnoughPlans: payEligible.length,
+      answeredPayQuestion: payEligible.filter(hasPayAnswer).length,
+    },
+  };
+}
+
 async function main() {
   const { Redis } = await import('@upstash/redis');
   const url = process.env.STUDBUD_INTEREST_KV_REST_API_URL;
@@ -166,16 +233,41 @@ async function main() {
   } while (cursor !== '0');
 
   const users = [];
+  const usersById = {};
   for (let i = 0; i < keys.length; i += 100) {
+    const batchKeys = keys.slice(i, i + 100);
     const p = redis.pipeline();
-    for (const k of keys.slice(i, i + 100)) p.hgetall(k);
-    for (const h of await p.exec()) if (h) users.push(h);
+    for (const k of batchKeys) p.hgetall(k);
+    (await p.exec()).forEach((h, idx) => {
+      if (!h) return;
+      users.push(h);
+      usersById[batchKeys[idx].slice('events:u:'.length)] = h;
+    });
   }
   const durations = await redis.lrange('events:durations', 0, 999);
 
   const rawInterest = await redis.lrange('interest:events', 0, -1);
   const result = summarize(users, durations);
   result.interest = summarizeInterest(rawInterest, users.length, exclude);
+
+  // Unlimited-beta unlock funnel
+  const planKeys = [];
+  let planCursor = '0';
+  do {
+    const [next, batch] = await redis.scan(planCursor, { match: 'beta:plans:*', count: 500 });
+    planCursor = String(next);
+    planKeys.push(...batch);
+  } while (planCursor !== '0');
+  const planCounts = {};
+  for (let i = 0; i < planKeys.length; i += 100) {
+    const batchKeys = planKeys.slice(i, i + 100);
+    const p = redis.pipeline();
+    for (const k of batchKeys) p.get(k);
+    (await p.exec()).forEach((v, idx) => { planCounts[batchKeys[idx].slice('beta:plans:'.length)] = num(v); });
+  }
+  const grantedIds = await redis.smembers('beta:granted');
+  const feedbackRows = await redis.lrange('feedback:responses', 0, -1);
+  result.unlock = summarizeUnlock({ feedbackRows, grantedIds, planCounts, usersById, installs: users.length }, exclude);
 
   console.log(JSON.stringify(result, null, 2));
 }
