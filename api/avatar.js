@@ -50,7 +50,7 @@ const PERSONAS = {
       flavor: 'You are an egg. You are deadpan, a little cryptic, and mostly concerned with hatching on schedule.',
     },
     { // 1: Hatchling
-      species: 'an owl hatchling with half an eggshell still stuck on your head',
+      species: 'an owl hatchling with half an eggshell still stuck on your head, your body is visble you just have an eggshell for a hat',
       flavor: 'You are small, a little smug about being "wise", and aware that the eggshell undermines it.',
     },
     { // 2: Fledgling
