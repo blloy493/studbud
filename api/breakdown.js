@@ -39,6 +39,7 @@ const VALID_TYPES = [
   'lab_report',
   'reading_response',
   'presentation',
+  'creative_project',
   'coding',
   'other',
 ];
@@ -69,6 +70,10 @@ const SETUP_STEPS = {
     title: 'Open a new slide deck',
     detail: 'Add a working title to the first slide. You can change it later.',
   },
+  creative_project: {
+    title: 'Gather the materials you need',
+    detail: 'Get the paper or supplies the assignment names, plus something to write or draw with.',
+  },
   coding: {
     title: 'Open your editor and create the project file',
     detail: 'Name the file. It can stay empty for now.',
@@ -93,8 +98,8 @@ const SYSTEM_PROMPT =
   'Ask only about missing information that would change the steps. Never ask about anything the text already states. ' +
   'Never ask for preferences or for things the student cannot know. If something is missing, return: ' +
   '{"status":"needs_info","questions":["..."]} with 1-3 short, specific questions, each answerable in a few words.\n\n' +
-  'STEP B - CLASSIFY. Set "type" to exactly one of: problem_set, essay, research_paper, lab_report, reading_response, presentation, coding, other. ' +
-  'Choose by what the student must produce. Use "other" if unsure.\n\n' +
+  'STEP B - CLASSIFY. Set "type" to exactly one of: problem_set, essay, research_paper, lab_report, reading_response, presentation, creative_project, coding, other. ' +
+  'Choose by what the student must produce. creative_project is a hand-made or designed item such as a poster, a page or screen mock-up, a model or a drawing, even if it is also presented to a class. Use "other" if unsure.\n\n' +
   'STEP C - PLAN. If you have enough information, return: {"status":"ready","type":"...","title":"...","steps":[...]}\n' +
   'Plan according to the type:\n' +
   '- problem_set: one "question" step per question, in order (see the numbered-question rule below).\n' +
@@ -104,6 +109,7 @@ const SYSTEM_PROMPT =
   '- reading_response: locate the reading, mark passages relevant to the prompt, draft the response, check it against the prompt.\n' +
   '- presentation: confirm the time limit and audience if stated, outline, one step per slide group, speaker notes, rehearsal.\n' +
   '- coding: restate the requirements, plan the approach, one step per requirement, test against any stated cases.\n' +
+  '- creative_project: list the required elements, plan the layout, one step per required element, then one step per written or spoken part the text requires (for example questions to answer or a presentation to prepare), then rehearsal if it is presented.\n' +
   '- other: use only the structure implied by the text.\n\n' +
   'STEP RULES\n' +
   '- "title": 3-6 words, Title Case, names the assignment (no deadlines).\n' +
@@ -126,7 +132,7 @@ const SYSTEM_PROMPT =
   'If the number of sources is not stated, ask in STEP A. For any other citation style, use "do" steps instead.\n\n' +
   'FIGURES. The assignment text may end with a section "FIGURES IN THE DOCUMENT" describing graphs, charts or images the student can see in their own file, with [Figure N] markers in the text where they appear. ' +
   'When a step depends on a figure, name it by its label and page (for example "Figure 2, page 3") and say what to look at in it. ' +
-  'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure, and never put one in "ask". If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
+  'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure, and never put one in "ask". A figure never creates a requirement, option, list, limit or rule: those come only from the assignment text. If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
   'DO NOT DO THE STUDENT\'S WORK. This tool only organizes the assignment and explains what each task asks.\n' +
   '- Never answer, solve, calculate, or write any part of the assignment. Never state a result: no final answers, values, ratios, genotypes, thesis statements, or sample sentences.\n' +
   '- A detail names what is being asked and the approach to take, so a student who knows the material can start. It never contains the outcome of applying that approach.\n' +
@@ -161,7 +167,7 @@ const EXPAND_PROMPT =
   'If you are unsure whether something is set by the instructor, tell the student to confirm it with the assignment instructions.\n\n' +
   'FIGURES. The assignment text may end with a section "FIGURES IN THE DOCUMENT" describing graphs, charts or images the student can see in their own file, with [Figure N] markers in the text where they appear. ' +
   'When a step depends on a figure, name it by its label and page (for example "Figure 2, page 3") and say what to look at in it. ' +
-  'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure. If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
+  'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure. A figure never creates a requirement, option, list, limit or rule: those come only from the assignment text. If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
   'DO NOT DO THE STUDENT\'S WORK. This tool only organizes the question and explains what each task asks.\n' +
   '- Never answer, solve, calculate, or write any part of the answer. Never state a result: no final answers, values, ratios, genotypes, or sample sentences.\n' +
   '- A detail names what is being asked and the approach to take, so a student who knows the material can start. It never contains the outcome of applying that approach.\n' +
