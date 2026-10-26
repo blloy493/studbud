@@ -124,7 +124,7 @@ const SYSTEM_PROMPT =
   'The last step is a final review whose detail lists every requirement from the text as a checklist.\n' +
   '- If the assignment is a list of numbered questions, make one step of kind "question" per question, in order, with no preparatory steps, and start each title with its number (e.g. "Q4: ..."; ' +
   'use the section name too if numbering repeats, e.g. "Multihybrid Q2: ..."). If there are more than 25 questions, group related consecutive ones into one step. Still end with one review step of kind "do".\n' +
-  '- Every step except kind "question" is an object with "kind", "title" (imperative, under 12 words) and "detail" (1-2 sentences saying what the task is actually asking and which method, concept or formula to apply; ' +
+  '- Every step except kind "question" is an object with "kind", "title" (imperative, under 12 words) and "detail" (at most 2 short sentences, under 200 characters, saying what the task is actually asking and which method, concept or formula to apply; ' +
   'name the requirement or rubric item it satisfies when the text lists them). The final review step is the exception: its detail is the requirement checklist.\n' +
   '- kind "do": a normal action.\n' +
   '- kind "question": only for numbered questions. It has "title" and "ask" and no "detail". ' +
@@ -137,7 +137,7 @@ const SYSTEM_PROMPT =
   'The app collects the source details and formats the citation itself, so do not describe formatting rules in these steps. ' +
   'If the number of sources is not stated, ask in STEP A. For any other citation style, use "do" steps instead.\n\n' +
   'FIGURES. The assignment text may end with a section "FIGURES IN THE DOCUMENT" describing graphs, charts or images the student can see in their own file, with [Figure N] markers in the text where they appear. ' +
-  'When a step depends on a figure, name it by its label and page (for example "Figure 2, page 3") and say what to look at in it. ' +
+  'When a step depends on a figure, end its detail with a new line (\n) in the form "See Figure 2, page 3: what to look at." and keep figure references out of the rest of the detail (that line does not count toward the length limit). ' +
   'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure, and never put one in "ask". A figure never creates a requirement, option, list, limit or rule: those come only from the assignment text. If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
   'DO NOT DO THE STUDENT\'S WORK. This tool only organizes the assignment and explains what each task asks.\n' +
   '- Never answer, solve, calculate, or write any part of the assignment. Never state a result: no final answers, values, ratios, genotypes, thesis statements, or sample sentences.\n' +
@@ -166,13 +166,13 @@ const EXPAND_PROMPT =
   'Use the assignment text only for context (shared data, a passage, or earlier parts that the question refers to).\n\n' +
   'RULES\n' +
   '- 2-5 steps. Each is one concrete action of roughly 2-10 minutes. Every step has "kind" set to "do", "title" (imperative, under 12 words) ' +
-  'and "detail" (1-2 sentences saying what the step asks and which method, concept or formula to apply).\n' +
+  'and "detail" (at most 2 short sentences, under 200 characters, saying what the step asks and which method, concept or formula to apply).\n' +
   '- Cover only this question. No setup step such as opening a file, no review of the whole assignment, no generic study-habit filler.\n' +
   '- The last step is writing the answer in the form the question asks for (for example a number with units, a short explanation, or a diagram).\n' +
   '- Use only requirements stated in the question or the assignment text. Never invent word counts, formats, or grading criteria. ' +
   'If you are unsure whether something is set by the instructor, tell the student to confirm it with the assignment instructions.\n\n' +
   'FIGURES. The assignment text may end with a section "FIGURES IN THE DOCUMENT" describing graphs, charts or images the student can see in their own file, with [Figure N] markers in the text where they appear. ' +
-  'When a step depends on a figure, name it by its label and page (for example "Figure 2, page 3") and say what to look at in it. ' +
+  'When a step depends on a figure, end its detail with a new line (\n) in the form "See Figure 2, page 3: what to look at." and keep figure references out of the rest of the detail (that line does not count toward the length limit). ' +
   'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure. A figure never creates a requirement, option, list, limit or rule: those come only from the assignment text. If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
   'DO NOT DO THE STUDENT\'S WORK. This tool only organizes the question and explains what each task asks.\n' +
   '- Never answer, solve, calculate, or write any part of the answer. Never state a result: no final answers, values, ratios, genotypes, or sample sentences.\n' +

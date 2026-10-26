@@ -20,6 +20,7 @@ import { guard } from './_lib/guard.js';
 // abandon_<reason>: the student discarded a plan in progress and tapped a reason (abandon_skip = no reason given).
 // `steps` on these events = steps already completed in that plan (0-100); summed into abandon_steps_done so
 // abandon_steps_done / total abandon events = average steps done at discard. Counts only, no text.
+// ask_expanded: the student opened the collapsed question text on a step card (0.1.3+). Count only.
 // finish_*, upgrade_click and price_* are no longer sent by the extension; kept so older installs still record.
 const PAY_EVENTS = ['pay_no'];
 for (const answer of ['yes', 'maybe']) {
@@ -35,7 +36,7 @@ const UPLOAD_EVENTS = [
 const EVENTS = new Set([
   'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
-  'use_yes', 'use_no', 'waitlist_join', 'stuck_open', 'intake_started',
+  'use_yes', 'use_no', 'waitlist_join', 'stuck_open', 'intake_started', 'ask_expanded',
   ...PAY_EVENTS,
   ...ABANDON_EVENTS,
   ...UPLOAD_EVENTS,
