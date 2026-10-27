@@ -13,7 +13,7 @@ import { guard, withinUserCap } from './_lib/guard.js';
 
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // base64 adds ~33%: ~4 MB on the wire, under Vercel's ~4.5 MB body limit
 const MAX_TEXT = 8000;                  // must match the intake textarea cap (MAX_BRIEF_CHARS in content.js)
-const MAX_FIGURES = 12;
+const MAX_FIGURES = 20;
 const MAX_FIGURES_BLOCK = 3000;
 const MIN_USABLE = 40;                  // same as MIN_BRIEF in breakdown.js
 const DAILY_USER_CAP = 10;              // reads per userId per UTC day. A guess: tune from beta data.
@@ -46,7 +46,7 @@ const SYSTEM_PROMPT =
   '- "type": for example "line graph", "bar chart", "circuit diagram", "map".\n' +
   '- "description": what the figure shows, as plain facts: axis titles and units, scale, categories or labeled points, and the overall shape or trend. ' +
   'Never calculate, interpret, or state the answer to any question. If a value cannot be read reliably, write "approximately" or set "unreadable" to true.\n' +
-  '- At most 12 figures.';
+  '- At most 20 figures.';
 
 function httpError(status, message, code) {
   const e = new Error(message);
