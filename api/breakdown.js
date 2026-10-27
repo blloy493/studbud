@@ -6,7 +6,8 @@
 //
 // v7: assignment type classification + hardcoded first step.
 // Request:  { userId: string, brief: string, answers?: [{ question, answer }], round?: 0-2 }
-// Response: { status: 'needs_info', questions: [string] }
+// Response: { status: 'needs_info', questions: [string], options: [[string]] }
+//   options[i] = 2-5 tap-to-select answers for questions[i], or [] when the answer is free text. Older clients ignore `options`.
 //        or { status: 'ready', type, title, steps: [{ kind, title, detail, ... }], planId? }
 //        or { status: 'beta_limit' } (HTTP 200: the install used its free plans and has no unlimited entitlement)
 // planId identifies the plan server-side (plan:<id> in Redis); the client sends it back with its feedback so api/feedback.js can grant unlimited access.
@@ -103,7 +104,10 @@ const SYSTEM_PROMPT =
   'If the text is self-contained (for example, a list of questions to answer), return ready without asking anything. ' +
   'Ask only about missing information that would change the steps. Never ask about anything the text already states. ' +
   'Never ask for preferences or for things the student cannot know. If something is missing, return: ' +
-  '{"status":"needs_info","questions":["..."]} with 1-3 short, specific questions, each answerable in a few words.\n\n' +
+  '{"status":"needs_info","questions":[{"q":"...","options":["..."]}]} with 1-3 short, specific questions, each answerable in a few words. ' +
+  'Give "options" (2-5 choices, each under 30 characters) only when the answer is one of a small predictable set, such as a citation style, a number of sources or a number of paragraphs; otherwise use an empty list. ' +
+  'Never include "Other", "Not sure" or "Not stated" as options: the app adds them. ' +
+  'An answer of "Not stated in the assignment" means the instructor did not set it: never ask about it again, and tell the student in the relevant step to confirm it with the instructor.\n\n' +
   'STEP B - CLASSIFY. Set "type" to exactly one of: problem_set, essay, research_paper, lab_report, reading_response, presentation, creative_project, coding, other. ' +
   'Choose by what the student must produce. creative_project is a hand-made or designed item such as a poster, a page or screen mock-up, a model or a drawing, even if it is also presented to a class. Use "other" if unsure.\n\n' +
   'STEP C - PLAN. If you have enough information, return: {"status":"ready","type":"...","title":"...","steps":[...]}\n' +
@@ -137,7 +141,7 @@ const SYSTEM_PROMPT =
   'The app collects the source details and formats the citation itself, so do not describe formatting rules in these steps. ' +
   'If the number of sources is not stated, ask in STEP A. For any other citation style, use "do" steps instead.\n\n' +
   'FIGURES. The assignment text may end with a section "FIGURES IN THE DOCUMENT" describing graphs, charts or images the student can see in their own file, with [Figure N] markers in the text where they appear. ' +
-  'When a step depends on a figure, end its detail with a new line (\n) in the form "See Figure 2, page 3: what to look at." and keep figure references out of the rest of the detail (that line does not count toward the length limit). ' +
+  'When a step depends on a figure, end its detail with a new line (\n) in the form "See Figure 2, page 3: what to look at." (under 100 characters, always the last line) and keep figure references out of the rest of the detail (that line does not count toward the 200-character limit). ' +
   'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure, and never put one in "ask". A figure never creates a requirement, option, list, limit or rule: those come only from the assignment text. If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
   'DO NOT DO THE STUDENT\'S WORK. This tool only organizes the assignment and explains what each task asks.\n' +
   '- Never answer, solve, calculate, or write any part of the assignment. Never state a result: no final answers, values, ratios, genotypes, thesis statements, or sample sentences.\n' +
@@ -150,7 +154,7 @@ const SYSTEM_PROMPT =
   '- No generic study-habit filler.\n\n' +
   'EXAMPLE step for a numbered question ("Brown eyes are dominant to blue. A brown-eyed man whose mother was blue-eyed marries a brown-eyed woman whose father was blue-eyed. What is the probability of a blue-eyed child?"): ' +
   '{"kind":"question","title":"Q4: Find the probability of a blue-eyed child","ask":"Brown eyes are dominant to blue. A brown-eyed man whose mother was blue-eyed marries a brown-eyed woman whose father was blue-eyed. What is the probability of a blue-eyed child?"}\n' +
-  'EXAMPLE needs_info: {"status":"needs_info","questions":["Which citation style does the assignment require?","How many sources must you cite?"]}\n' +
+  'EXAMPLE needs_info: {"status":"needs_info","questions":[{"q":"Which citation style does the assignment require?","options":["APA 7","MLA 9","Chicago"]},{"q":"How many sources must you cite?","options":["1","2","3","4","5 or more"]}]}\n' +
   'EXAMPLE ready: {"status":"ready","type":"research_paper","title":"MLA Annotated Bibliography","steps":[' +
   '{"kind":"citation","title":"Add the citation for source 1","detail":"Start with the source you know best.","style":"mla9","n":1},' +
   '{"kind":"do","title":"Write the annotation for source 1","detail":"Summarize the source in 3-4 sentences, as the instructions require, directly below its citation."},' +
@@ -172,7 +176,7 @@ const EXPAND_PROMPT =
   '- Use only requirements stated in the question or the assignment text. Never invent word counts, formats, or grading criteria. ' +
   'If you are unsure whether something is set by the instructor, tell the student to confirm it with the assignment instructions.\n\n' +
   'FIGURES. The assignment text may end with a section "FIGURES IN THE DOCUMENT" describing graphs, charts or images the student can see in their own file, with [Figure N] markers in the text where they appear. ' +
-  'When a step depends on a figure, end its detail with a new line (\n) in the form "See Figure 2, page 3: what to look at." and keep figure references out of the rest of the detail (that line does not count toward the length limit). ' +
+  'When a step depends on a figure, end its detail with a new line (\n) in the form "See Figure 2, page 3: what to look at." (under 100 characters, always the last line) and keep figure references out of the rest of the detail (that line does not count toward the 200-character limit). ' +
   'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure. A figure never creates a requirement, option, list, limit or rule: those come only from the assignment text. If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
   'DO NOT DO THE STUDENT\'S WORK. This tool only organizes the question and explains what each task asks.\n' +
   '- Never answer, solve, calculate, or write any part of the answer. Never state a result: no final answers, values, ratios, genotypes, or sample sentences.\n' +
@@ -243,7 +247,7 @@ async function handleExpand(res, brief, label, ask) {
     .map(sanitizeStep)
     .filter(Boolean)
     .slice(0, MAX_EXPAND_STEPS)
-    .map((st) => ({ kind: 'do', title: st.title, detail: st.detail }));
+    .map((st) => ({ kind: 'do', title: st.title, detail: tidyDetail(st.detail) }));
   if (steps.length === 0) {
     throw httpError(502, 'Model returned no usable steps');
   }
@@ -254,11 +258,48 @@ function cleanString(v, max) {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
+// Step detail length. The prompt asks for under 200 characters; the cap sits a little higher so a small overrun is not cut
+// mid-sentence. The final review step (a requirement checklist) is exempt: see the plan handler.
+const DETAIL_MAX = 220;
+const REF_MAX = 100; // the trailing "See Figure N, page P: ..." line
+
+function trimTo(text, max) {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const sentenceEnd = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '));
+  if (sentenceEnd >= max * 0.5) return cut.slice(0, sentenceEnd + 1);
+  const space = cut.lastIndexOf(' ');
+  return (space > 0 ? cut.slice(0, space) : cut).replace(/[,;:\s]+$/, '') + '…';
+}
+
+// Caps the main text and the figure-reference line separately, and keeps the reference as the LAST line (the client shows
+// a last line starting with "See " on its own).
+function tidyDetail(detail) {
+  const lines = String(detail || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return '';
+  let ref = '';
+  if (lines.length > 1 && /^See\s/i.test(lines[lines.length - 1])) ref = trimTo(lines.pop(), REF_MAX);
+  const main = trimTo(lines.join(' '), DETAIL_MAX);
+  return ref ? `${main}\n${ref}` : main;
+}
+
+// 2-5 short, distinct tap-to-select answers; fewer than 2 means the question is free text.
+function cleanOptions(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const o of raw) {
+    const s = cleanString(o, 30);
+    if (s && !out.some((x) => x.toLowerCase() === s.toLowerCase())) out.push(s);
+    if (out.length === 5) break;
+  }
+  return out.length >= 2 ? out : [];
+}
+
 function sanitizeStep(raw, index) {
   if (!raw || typeof raw !== 'object') return null;
   const title = cleanString(raw.title, 120);
   if (!title) return null;
-  const detail = cleanString(raw.detail, 400);
+  const detail = cleanString(raw.detail, 600); // tidyDetail() applies the real caps (the final review checklist is exempt)
 
   if (raw.kind === 'question') {
     // If the model omits "ask", fall back to the title so the client still has something to expand from.
@@ -389,18 +430,25 @@ export default async function handler(req, res) {
     const parsed = await callModel(system, userContent, 5000); // up to 29 steps with details
 
     if (parsed && parsed.status === 'needs_info') {
-      const questions = Array.isArray(parsed.questions)
-        ? parsed.questions.map((q) => cleanString(q, 200)).filter(Boolean).slice(0, 3)
-        : [];
+      const questions = [];
+      const options = [];
+      for (const item of Array.isArray(parsed.questions) ? parsed.questions : []) {
+        const q = cleanString(typeof item === 'string' ? item : item && item.q, 200);
+        if (!q) continue;
+        questions.push(q);
+        options.push(cleanOptions(item && item.options));
+        if (questions.length === 3) break;
+      }
       if (round >= MAX_ROUND || questions.length === 0) {
         return res.status(502).json({ error: 'Could not build a plan from the information provided' });
       }
-      return res.status(200).json({ status: 'needs_info', questions });
+      return res.status(200).json({ status: 'needs_info', questions, options });
     }
 
     // Reserve one slot for the hardcoded first step.
     const modelSteps = Array.isArray(parsed && parsed.steps)
       ? parsed.steps.map(sanitizeStep).filter(Boolean).slice(0, MAX_STEPS - 1)
+          .map((st, i, all) => (i === all.length - 1 || !st.detail ? st : { ...st, detail: tidyDetail(st.detail) })) // the last step is the review checklist: left uncapped
       : [];
     if (modelSteps.length === 0) {
       return res.status(502).json({ error: 'Model returned no usable steps' });

@@ -21,6 +21,10 @@ import { guard } from './_lib/guard.js';
 // `steps` on these events = steps already completed in that plan (0-100); summed into abandon_steps_done so
 // abandon_steps_done / total abandon events = average steps done at discard. Counts only, no text.
 // ask_expanded: the student opened the collapsed question text on a step card (0.1.3+). Count only.
+// paste_opened: the student chose "Paste the text instead" on the intake screen (upload is the primary path). Count only.
+// clarify_chip / clarify_text: one per answered clarify question, by how it was answered (tap-to-select chip vs typed text). Count only.
+// mini_next: the student advanced a step with the check button on the minimized widget. Compare with step_completed to see
+// how much of the step flow now happens minimized. Count only.
 // finish_*, upgrade_click and price_* are no longer sent by the extension; kept so older installs still record.
 const PAY_EVENTS = ['pay_no'];
 for (const answer of ['yes', 'maybe']) {
@@ -37,6 +41,7 @@ const EVENTS = new Set([
   'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
   'use_yes', 'use_no', 'waitlist_join', 'stuck_open', 'intake_started', 'ask_expanded',
+  'paste_opened', 'clarify_chip', 'clarify_text', 'mini_next',
   ...PAY_EVENTS,
   ...ABANDON_EVENTS,
   ...UPLOAD_EVENTS,
