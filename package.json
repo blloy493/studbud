@@ -12,7 +12,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@upstash/redis": "^1.39.0"
+    "@upstash/redis": "^1.39.0",
+    "stripe": "^23.1.0"
   },
   "devDependencies": {
     "dotenv": "^18.0.8"
