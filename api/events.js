@@ -25,6 +25,8 @@ import { guard } from './_lib/guard.js';
 // clarify_chip / clarify_text: one per answered clarify question, by how it was answered (tap-to-select chip vs typed text). Count only.
 // mini_next: the student advanced a step with the check button on the minimized widget. Compare with step_completed to see
 // how much of the step flow now happens minimized. Count only.
+// widget_shown: the widget rendered for the first time that day on this install (client sends at most once per day).
+// Daily active installs = users with widget_shown > 0 on a given d:YYYY-MM-DD. Compare with the Web Store user count. Count only.
 // finish_*, upgrade_click and price_* are no longer sent by the extension; kept so older installs still record.
 const PAY_EVENTS = ['pay_no'];
 for (const answer of ['yes', 'maybe']) {
@@ -41,7 +43,7 @@ const EVENTS = new Set([
   'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
   'use_yes', 'use_no', 'waitlist_join', 'stuck_open', 'intake_started', 'ask_expanded',
-  'paste_opened', 'clarify_chip', 'clarify_text', 'mini_next',
+  'paste_opened', 'clarify_chip', 'clarify_text', 'mini_next', 'widget_shown',
   ...PAY_EVENTS,
   ...ABANDON_EVENTS,
   ...UPLOAD_EVENTS,

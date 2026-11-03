@@ -327,8 +327,10 @@ async function withinBetaLimit(userId) {
     const p = r.pipeline();
     p.get(`beta:plans:${userId}`);
     p.exists(`ent:${userId}`);
-    const [used, hasEnt] = await p.exec();
+    p.hget(`paid:${userId}`, 'exp'); // paid access (written by api/stripe-webhook.js): ms timestamp it runs to
+    const [used, hasEnt, paidExp] = await p.exec();
     if (Number(used || 0) < BETA_PLAN_LIMIT) return true;
+    if (Number(paidExp || 0) > Date.now()) return true; // deliberately not tied to betaOpen(): ending the beta must not cut off paying students
     return Number(hasEnt) === 1 && betaOpen();
   } catch (err) {
     console.error('[breakdown] beta limit check failed:', err);
