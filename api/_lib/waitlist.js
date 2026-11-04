@@ -12,7 +12,7 @@
 // Abuse protection (Origin check, per-IP cap of 5 attempts/day, global cap) comes from ./_lib/guard.js.
 
 import { Redis } from '@upstash/redis';
-import { guard } from './_lib/guard.js';
+import { guard } from './guard.js';
 
 const MAX_EMAIL = 254;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
