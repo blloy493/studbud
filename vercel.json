@@ -1,1 +1,10 @@
-{ "functions": { "api/readdoc.js": { "maxDuration": 60 } } }
+{ "functions": { "api/readdoc.js": { "maxDuration": 60 } },
+
+    "rewrites": [
+      { "source": "/api/feedback", "destination": "/api/forms?action=feedback" },
+      { "source": "/api/interest", "destination": "/api/forms?action=interest" },
+      { "source": "/api/waitlist", "destination": "/api/forms?action=waitlist" }
+    ]
+  }
+
+
