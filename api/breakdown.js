@@ -9,7 +9,8 @@
 // Response: { status: 'needs_info', questions: [string], options: [[string]] }
 //   options[i] = 2-5 tap-to-select answers for questions[i], or [] when the answer is free text. Older clients ignore `options`.
 //        or { status: 'ready', type, title, steps: [{ kind, title, detail, ... }], planId? }
-//        or { status: 'beta_limit' } (HTTP 200: the install used its free plans and has no unlimited entitlement)
+//        or { status: 'beta_limit', tier, trialEndsAt, resetsAt, remaining } (HTTP 200: trial over and this month's free plans used.
+//             The status name is kept so installed clients still show a wall; it is renamed with the extension update.)
 // planId identifies the plan server-side (plan:<id> in Redis); the client sends it back with its feedback so api/feedback.js can grant unlimited access.
 // Step kinds: 'do' | 'copy' (+ text) | 'citation' (+ style 'apa7'|'mla9', n) | 'question' (+ ask; no detail).
 //
@@ -24,7 +25,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { guard, withinUserCap, getRedis } from './_lib/guard.js';
-import { betaOpen } from './_lib/beta.js';
+import { checkAllowance, recordUse } from './_lib/entitlement.js';
 
 const MIN_BRIEF = 40;
 const MAX_BRIEF = 12000; // textarea text (MAX_BRIEF_CHARS = 8000 in content.js) + the figures block from api/readdoc.js (max 3000)
@@ -36,7 +37,6 @@ const MAX_ASK = 500; // length cap for a question's text ('ask')
 const MAX_EXPAND_STEPS = 6; // micro-steps per expanded question
 const DAILY_USER_CAP = 20;   // plan calls (incl. clarification rounds) per userId per UTC day. A guess: tune from beta data.
 const DAILY_EXPAND_CAP = 60; // worksheet 'expand' calls per userId per UTC day: one per question, and worksheets can have 25 questions
-const BETA_PLAN_LIMIT = 3;              // lifetime ready plans per install without an entitlement (matches ANALYSIS_LIMIT in content.js)
 const PLAN_TTL_SEC = 60 * 60 * 24 * 30; // plan:<id> records expire after 30 days
 
 const VALID_TYPES = [
@@ -318,26 +318,6 @@ function sanitizeStep(raw, index) {
   return { kind: 'do', title, detail };
 }
 
-// ent:<userId> is written ONLY by api/feedback.js. BETA_UNLIMITED_UNTIL (see _lib/beta.js) is the kill switch.
-// False only when the install has used its free plans and has no honoured entitlement. Fails open if Redis is down, like guard.js.
-async function withinBetaLimit(userId) {
-  const r = getRedis();
-  if (!r) return true;
-  try {
-    const p = r.pipeline();
-    p.get(`beta:plans:${userId}`);
-    p.exists(`ent:${userId}`);
-    p.hget(`paid:${userId}`, 'exp'); // paid access (written by api/stripe-webhook.js): ms timestamp it runs to
-    const [used, hasEnt, paidExp] = await p.exec();
-    if (Number(used || 0) < BETA_PLAN_LIMIT) return true;
-    if (Number(paidExp || 0) > Date.now()) return true; // deliberately not tied to betaOpen(): ending the beta must not cut off paying students
-    return Number(hasEnt) === 1 && betaOpen();
-  } catch (err) {
-    console.error('[breakdown] beta limit check failed:', err);
-    return true;
-  }
-}
-
 // Called once per ready plan. Returns the planId, or undefined if it could not be stored.
 async function recordPlan(userId, stepCount) {
   const r = getRedis();
@@ -402,9 +382,19 @@ export default async function handler(req, res) {
     }
   }
 
-  // Beta lifetime cap. Expand calls (above) are not gated, so a student can always finish the plan they already have.
-  if (!(await withinBetaLimit(userId))) {
-    return res.status(200).json({ status: 'beta_limit' });
+  // Allowance gate (free tier only; paid and trial pass through). Expand calls (above) are not gated, so a student can always
+  // finish the plan they already have. Clarification rounds are gated too, so no model call is spent once the allowance is gone.
+  // The use is counted below, only when a plan comes back ready. Fails open if Redis is down.
+  const allowance = await checkAllowance(userId, 'plan');
+  if (!allowance.allowed) {
+    const s = allowance.status;
+    return res.status(200).json({
+      status: 'beta_limit',
+      tier: s.tier,
+      trialEndsAt: s.trialEndsAt,
+      resetsAt: s.resetsAt,
+      remaining: s.remaining,
+    });
   }
 
   const answers = Array.isArray(body.answers)
@@ -464,6 +454,7 @@ export default async function handler(req, res) {
     // Title is optional: if it's missing or malformed the client falls back to the start of the brief.
     const title = cleanString(parsed.title, 60);
     const planId = await recordPlan(userId, steps.length);
+    await recordUse(userId, 'plan', allowance.status); // starts the trial on a first plan; counts against the allowance on the free tier
     return res.status(200).json({ status: 'ready', type, title: title || undefined, steps, planId });
   } catch (err) {
     if (err && err.status) return res.status(err.status).json({ error: err.message });

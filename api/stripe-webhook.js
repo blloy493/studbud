@@ -4,15 +4,16 @@
 // Requires env vars: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET.
 //
 // Events to enable on the webhook endpoint (nothing else is handled):
-//   checkout.session.completed   first payment (subscription or semester pass), including $0 promo-code checkouts
+//   checkout.session.completed   a pass purchase (weekly / semester / yearly), including $0 promo-code checkouts
 //   invoice.paid                 subscription renewals only (billing_reason === 'subscription_cycle')
 //   customer.subscription.deleted  subscription ended (immediate cancel, or period end after a scheduled cancel)
 // A scheduled cancel needs no handling: access simply stops at the stored period end.
+// invoice.paid and customer.subscription.deleted only matter for installs that bought the old monthly subscription; passes are one-time payments.
 // Refunds and disputes are NOT handled: do those by hand for now.
 
 import Stripe from 'stripe';
 import { getRedis } from './_lib/guard.js';
-import { USER_ID_RE, grantUntil, extendSemester, endNow, userIdForCustomer } from './_lib/entitlement.js';
+import { USER_ID_RE, PASS_DAYS, grantUntil, extendPass, endNow, userIdForCustomer, recordServerEvent } from './_lib/entitlement.js';
 
 // Stripe's signature is computed over the unparsed body, so Vercel's body parsing must be off.
 // Verify this works on your project in test mode (the Stripe CLI `stripe listen` + `stripe trigger` is enough).
@@ -46,7 +47,12 @@ async function onCheckoutCompleted(session) {
   const customerId = typeof session.customer === 'string' ? session.customer : undefined;
 
   if (session.mode === 'payment') {
-    await extendSemester(userId, customerId);
+    // The plan comes from the metadata checkout.js sets. Sessions created before the pass plans shipped have none and were semester passes.
+    const plan = (session.metadata && session.metadata.plan) || 'semester';
+    if (!PASS_DAYS[plan]) throw new Error(`unknown pass plan "${plan}" on session ${session.id}`); // 500: visible in Stripe's failed-webhook list
+    await extendPass(userId, plan, customerId);
+    // $0 checkouts (promo and gift codes) are counted apart from purchases so the purchase funnel stays clean.
+    await recordServerEvent(userId, session.payment_status === 'no_payment_required' ? `gift_redeemed_${plan}` : `purchase_completed_${plan}`);
   } else if (session.mode === 'subscription') {
     const sub = await getStripe().subscriptions.retrieve(session.subscription);
     const end = periodEnd(sub);

@@ -21,6 +21,7 @@
 
 import { Redis } from '@upstash/redis';
 import { guard } from './_lib/guard.js';
+import { checkAllowance, recordUse } from './_lib/entitlement.js';
 
 const MAX_MESSAGE = 500;
 const MAX_HISTORY = 6;
@@ -224,6 +225,12 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: 'Daily message limit reached. Come back tomorrow.', limit: true });
   }
 
+  // Monthly allowance (free tier only). When it is used up we still run moderation and the classifier below, because a student
+  // in distress must always get the hardcoded distress reply and never a limit message. The limit response is returned only after
+  // both safety layers have passed. Costs one small model call per denied message, bounded by the daily cap above.
+  const allowance = await checkAllowance(userId, 'chat');
+  const capped = !allowance.allowed;
+
   try {
     // Moderation and the chat call run in parallel to avoid adding latency.
     const [mod, openaiRes] = await Promise.all([
@@ -280,12 +287,27 @@ export default async function handler(req, res) {
       return res.status(200).json({ category, reply: DISTRESS_REPLY });
     }
 
+    // Allowance used up: nothing safety-related is outstanding, so now the limit applies.
+    if (capped) {
+      const s = allowance.status;
+      return res.status(429).json({
+        error: "You've used this month's free chats.",
+        limit: true,
+        allowance: true,
+        tier: s.tier,
+        trialEndsAt: s.trialEndsAt,
+        resetsAt: s.resetsAt,
+        remaining: s.remaining,
+      });
+    }
+
     // Other moderation flags (violence, hate, sexual, etc.) get a fixed deflection.
     if (mod.flagged) {
       return res.status(200).json({ category: 'other', reply: DEFLECT_REPLY });
     }
 
     const reply = cleanString(parsed && parsed.reply, MAX_REPLY) || FALLBACK_REPLY;
+    if (category !== 'other') await recordUse(userId, 'chat', allowance.status); // distress and abuse/injection never use the allowance
     return res.status(200).json({ category, reply });
   } catch (err) {
     console.error('Avatar endpoint error:', err);

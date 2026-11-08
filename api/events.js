@@ -39,6 +39,12 @@ const UPLOAD_EVENTS = [
   'upload_started', 'upload_succeeded', 'upload_figures', 'upload_truncated',
   'upload_failed_too_large', 'upload_failed_unreadable', 'upload_failed_error',
 ];
+
+const BILLING_EVENTS = [
+  'wall_shown',
+  'checkout_opened_weekly', 'checkout_opened_semester', 'checkout_opened_yearly', 'checkout_opened_group',
+];
+
 const EVENTS = new Set([
   'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
@@ -47,6 +53,7 @@ const EVENTS = new Set([
   ...PAY_EVENTS,
   ...ABANDON_EVENTS,
   ...UPLOAD_EVENTS,
+  ...BILLING_EVENTS,
 ]);
 const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 

@@ -14,6 +14,7 @@
 
 import { Redis } from '@upstash/redis';
 import { guard } from './_lib/guard.js';
+import { checkAllowance, recordUse } from './_lib/entitlement.js';
 
 const MAX_BRIEF = 8000;      // accepted size (matches breakdown.js)
 const DAILY_CAP = 15;        // help requests per userId per UTC day (up to 3 per step). A guess: tune from beta data.
@@ -176,6 +177,25 @@ export default async function handler(req, res) {
         .filter((h) => h.level && h.text)
     : [];
 
+  // Monthly allowance (free tier only). One use = one question: only level 1 is checked and counted, so a student who spends
+  // their last use can still finish levels 2 and 3 on that question. Fails open if Redis is down.
+  let allowance = null;
+  if (level === 1) {
+    allowance = await checkAllowance(userId, 'stuck');
+    if (!allowance.allowed) {
+      const s = allowance.status;
+      return res.status(429).json({
+        error: "You've used this month's free help requests.",
+        limit: true,
+        allowance: true,
+        tier: s.tier,
+        trialEndsAt: s.trialEndsAt,
+        resetsAt: s.resetsAt,
+        remaining: s.remaining,
+      });
+    }
+  }
+
   if (!(await withinDailyCap(redis, userId))) {
     return res.status(429).json({ error: 'Daily help limit reached. Come back tomorrow.', limit: true });
   }
@@ -230,6 +250,7 @@ export default async function handler(req, res) {
     const out = sanitizeOutput(level, parsed);
     if (!out) return res.status(502).json({ error: 'Model returned no usable help' });
 
+    if (level === 1) await recordUse(userId, 'stuck', allowance && allowance.status);
     await bump(redis, `stuck:count:level${level}:${stuckKind || 'none'}`);
     return res.status(200).json({ status: 'ok', level, ...out });
   } catch (err) {

@@ -1,9 +1,10 @@
 // api/checkout.js
 // Vercel serverless function. Deploy path: /api/checkout
-// Request:  { userId: string, plan: 'monthly' | 'semester' }
+// Request:  { userId: string, plan: 'weekly' | 'semester' | 'yearly' }  (all one-time passes; the group pass is a later step)
 // Response: { url: string }  (the extension opens it in a new tab, from a student click only)
 //
-// Requires env vars: STRIPE_SECRET_KEY, STRIPE_PRICE_MONTHLY, STRIPE_PRICE_SEMESTER, SITE_URL (no trailing slash).
+// Requires env vars: STRIPE_SECRET_KEY, STRIPE_PRICE_WEEKLY, STRIPE_PRICE_SEMESTER, STRIPE_PRICE_YEARLY, SITE_URL (no trailing slash).
+// Pass lengths live in entitlement.js (PASS_DAYS). The plan name travels to the webhook in the session metadata.
 // SITE_URL must serve /thanks.html and /cancelled.html (plain static pages are enough).
 // The Stripe API version is not pinned here, so the account's default version applies.
 
@@ -21,8 +22,9 @@ function getStripe() {
 }
 
 const PLANS = {
-  monthly: { mode: 'subscription', priceEnv: 'STRIPE_PRICE_MONTHLY' },
+  weekly: { mode: 'payment', priceEnv: 'STRIPE_PRICE_WEEKLY' },
   semester: { mode: 'payment', priceEnv: 'STRIPE_PRICE_SEMESTER' },
+  yearly: { mode: 'payment', priceEnv: 'STRIPE_PRICE_YEARLY' },
 };
 
 export default async function handler(req, res) {
@@ -47,14 +49,11 @@ export default async function handler(req, res) {
       mode: cfg.mode,
       line_items: [{ price, quantity: 1 }],
       client_reference_id: userId, // the webhook maps the payment back to this install with it
-      allow_promotion_codes: true, // beta codes are entered on the Stripe page
+      metadata: { plan }, // the webhook reads the pass length from this
+      allow_promotion_codes: true, // promo and gift codes are entered on the Stripe page
       success_url: `${process.env.SITE_URL}/thanks.html`,
       cancel_url: `${process.env.SITE_URL}/cancelled.html`,
     };
-    if (cfg.mode === 'subscription') {
-      params.subscription_data = { metadata: { userId } };
-      params.payment_method_collection = 'if_required'; // a 100%-off code skips the card form (subscription mode only)
-    }
     const session = await getStripe().checkout.sessions.create(params);
     return res.status(200).json({ url: session.url });
   } catch (err) {
