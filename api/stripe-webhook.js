@@ -52,7 +52,8 @@ async function onCheckoutCompleted(session) {
     if (!PASS_DAYS[plan]) throw new Error(`unknown pass plan "${plan}" on session ${session.id}`); // 500: visible in Stripe's failed-webhook list
     await extendPass(userId, plan, customerId);
     // $0 checkouts (promo and gift codes) are counted apart from purchases so the purchase funnel stays clean.
-    await recordServerEvent(userId, session.payment_status === 'no_payment_required' ? `gift_redeemed_${plan}` : `purchase_completed_${plan}`);
+    // Stripe reports payment_status 'paid' for a fully discounted payment-mode session, so the total after discounts is what identifies it.
+    await recordServerEvent(userId, session.amount_total === 0 ? `gift_redeemed_${plan}` : `purchase_completed_${plan}`);
   } else if (session.mode === 'subscription') {
     const sub = await getStripe().subscriptions.retrieve(session.subscription);
     const end = periodEnd(sub);
@@ -90,7 +91,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Bad signature' });
   }
 
-  // Stripe retries and can deliver an event twice. extendSemester adds time, so a repeat would double it: dedupe by event id.
+  // Stripe retries and can deliver an event twice. extendPass adds time, so a repeat would double it: dedupe by event id.
   const r = getRedis();
   const dedupeKey = `stripe:evt:${event.id}`;
   if (r) {
