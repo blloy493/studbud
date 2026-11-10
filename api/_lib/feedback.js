@@ -5,30 +5,25 @@
 // Request (from the extension's feedback card, via background.js):
 //   {
 //     anonId: string,                        // anonymous per-install id
-//     trigger: 'completion' | 'limit_hit',
+//     trigger: 'completion' | 'limit_hit',   // current clients send 'completion'; 'limit_hit' is accepted for older installed clients
 //     reuse: 'yes' | 'no' | null,            // "Would you use StudBud on your next assignment?"
 //     text: string,                          // optional free text, max 500 chars
-//     planId?: string,                       // from the 'ready' breakdown response; needed to unlock unlimited access
 //     assignmentType?, stepsTotal?, stepsCompleted?, plansCompleted?, analysesUsed?, avatarMessages?, asks?
 //   }
-// Response: { ok: true, granted: boolean, expiresAt?: number } or { error }
-// granted is true when this submission unlocks (or the install already has) unlimited beta access: trigger 'completion',
-// a reuse answer, and a plan that this install created, finished (all steps) and that is older than MIN_PLAN_SEC.
-// Feedback is stored whether or not access is granted. ent:<anonId> is written only here.
+// Response: { ok: true } or { error }
+// Feedback is stored for its own sake. It no longer unlocks anything: the beta unlock (ent:<anonId>) was retired with the
+// paid launch, and a planId sent by an older client is ignored. Access is decided in _lib/entitlement.js.
 //
 // Responses are stored newest-first in the Redis list `feedback:responses` (capped at MAX_LIST).
 // Read them in the Upstash data browser. If they are ever rendered on a page (e.g. a dashboard), escape the text:
 // it is free text typed by students.
 
 import { Redis } from '@upstash/redis';
-import { guard } from './guard.js';
-import { betaOpen, betaUntil } from './beta.js';
+import { guard } from './_lib/guard.js';
 
 const MAX_TEXT = 500; // keep in sync with FEEDBACK_MAX_LEN in content.js
 const DAILY_CAP = 5;  // submissions per anonId per UTC day (a legitimate student sends one)
 const MAX_LIST = 5000;
-const MIN_PLAN_SEC = 120; // minimum time between plan creation and the grant. A guess: tune from events:durations
-const PLAN_ID_RE = /^[0-9a-f-]{36}$/i;
 
 const TRIGGERS = ['completion', 'limit_hit'];
 const REUSE = ['yes', 'no'];
@@ -40,27 +35,6 @@ function cleanString(v, max) {
 
 function cleanCount(v) {
   return Number.isInteger(v) && v >= 0 ? Math.min(v, 9999) : 0;
-}
-
-// Decides whether this submission unlocks unlimited access. A failed check never blocks the feedback itself.
-// The reason is logged only; the client gets just granted true/false so the checks are not spelled out to it.
-async function tryGrant(redis, { anonId, trigger, reuse, planId, stepsCompleted }) {
-  const deny = (reason) => {
-    console.log(`[feedback] no grant: ${reason}`);
-    return { granted: false };
-  };
-  if (!betaOpen()) return deny('beta_closed');
-  if (await redis.exists(`ent:${anonId}`)) return { granted: true, expiresAt: betaUntil() }; // already unlocked
-  if (trigger !== 'completion' || !reuse || !PLAN_ID_RE.test(planId)) return deny('not_eligible');
-
-  const plan = await redis.get(`plan:${planId}`);
-  if (!plan || plan.userId !== anonId) return deny('unknown_plan');
-  if (Date.now() - plan.createdAt < MIN_PLAN_SEC * 1000) return deny('too_fast');
-  if (stepsCompleted < plan.steps) return deny('incomplete');
-
-  await redis.set(`ent:${anonId}`, { grantedAt: Date.now(), planId });
-  await redis.sadd('beta:granted', anonId); // for the readout
-  return { granted: true, expiresAt: betaUntil() };
 }
 
 export default async function handler(req, res) {
@@ -102,10 +76,6 @@ export default async function handler(req, res) {
       return res.status(429).json({ error: 'Too many submissions' });
     }
 
-    const stepsCompleted = cleanCount(body.stepsCompleted);
-    const planId = cleanString(body.planId, 64);
-    const grant = await tryGrant(redis, { anonId, trigger, reuse, planId, stepsCompleted });
-
     const record = {
       ts: Date.now(),
       anonId,
@@ -114,19 +84,17 @@ export default async function handler(req, res) {
       text,
       assignmentType: TYPES.includes(body.assignmentType) ? body.assignmentType : null,
       stepsTotal: cleanCount(body.stepsTotal),
-      stepsCompleted,
+      stepsCompleted: cleanCount(body.stepsCompleted),
       plansCompleted: cleanCount(body.plansCompleted),
       analysesUsed: cleanCount(body.analysesUsed),
       avatarMessages: cleanCount(body.avatarMessages),
       asks: cleanCount(body.asks),
-      planId: PLAN_ID_RE.test(planId) ? planId : null,
-      granted: grant.granted,
     };
 
     await redis.lpush('feedback:responses', JSON.stringify(record));
     await redis.ltrim('feedback:responses', 0, MAX_LIST - 1);
 
-    return res.status(200).json({ ok: true, granted: grant.granted, expiresAt: grant.expiresAt });
+    return res.status(200).json({ ok: true });
   } catch (err) {
     console.error('Feedback endpoint error:', err);
     return res.status(500).json({ error: 'Internal server error' });

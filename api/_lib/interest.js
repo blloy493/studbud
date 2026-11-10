@@ -1,12 +1,12 @@
 // api/interest.js
 // Vercel serverless function. Deploy path: /api/interest
-// Records "coming soon" feature interest clicks (parser / injection_system)
-// so we can see which paid features testers actually want before building them.
+// Records "coming soon" feature interest clicks (parser / injection_system / draft_check / study_mode)
+// so we can see which new features students actually want before building them.
 // Requires UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN env vars,
 // set automatically by the Upstash Redis Marketplace integration on Vercel.
 
 import { Redis } from '@upstash/redis';
-import { guard } from './guard.js';
+import { guard } from './_lib/guard.js';
 
 // fromEnv() only looks for the unprefixed UPSTASH_REDIS_REST_URL/TOKEN names.
 // Vercel prefixed these with the store name (STUDBUD_INTEREST_) because
@@ -46,8 +46,8 @@ export default async function handler(req, res) {
   };
 
   try {
-    // One list holds every event, newest last. Simple and enough at beta scale
-    // (a few hundred testers, a handful of clicks each). Revisit if volume grows.
+    // One list holds every event, newest last. Simple and enough at this scale
+    // (a handful of clicks per student). Revisit if volume grows.
     await redis.rpush('interest:events', JSON.stringify(event));
 
     // Also keep per-feature and per-integration counters for a quick read

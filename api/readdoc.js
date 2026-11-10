@@ -10,13 +10,14 @@
 // The client appends figuresBlock to the (possibly edited) text to form the `brief` sent to api/breakdown.js.
 
 import { guard, withinUserCap } from './_lib/guard.js';
+import { checkAllowance } from './_lib/entitlement.js';
 
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // base64 adds ~33%: ~4 MB on the wire, under Vercel's ~4.5 MB body limit
 const MAX_TEXT = 8000;                  // must match the intake textarea cap (MAX_BRIEF_CHARS in content.js)
 const MAX_FIGURES = 20;
 const MAX_FIGURES_BLOCK = 3000;
 const MIN_USABLE = 40;                  // same as MIN_BRIEF in breakdown.js
-const DAILY_USER_CAP = 10;              // reads per userId per UTC day. A guess: tune from beta data.
+const DAILY_USER_CAP = 10;              // reads per userId per UTC day. A guess: tune from usage data.
 const READ_EFFORT = 'none';             // test 'low' if figure descriptions are weak
 const TIMEOUT_MS = 50000;               // keep below the function's maxDuration (see vercel.json)
 
@@ -152,7 +153,7 @@ async function readDocument(mime, b64) {
 }
 
 export default async function handler(req, res) {
-  if (!(await guard(req, res, { name: 'readdoc', ipDailyCap: 300, globalDailyCap: 600 }))) return; // guesses: tune from beta data
+  if (!(await guard(req, res, { name: 'readdoc', ipDailyCap: 300, globalDailyCap: 600 }))) return; // guesses: tune from usage data
 
   const body = req.body || {};
   const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
@@ -174,6 +175,14 @@ export default async function handler(req, res) {
   }
   if (!FILE_CHECKS[mime](bytes)) {
     return res.status(400).json({ error: 'That file does not look like a valid PDF or image.', code: 'error' });
+  }
+
+  // Reading a document is the costly step of a new plan, so it follows the same allowance as the plan itself: a free-tier
+  // install with no breakdowns left is refused here, before any model call. Checked, not counted: the plan is counted when
+  // api/breakdown.js returns it. Paid and trial installs pass; fails open if Redis is down.
+  const allowance = await checkAllowance(userId, 'plan');
+  if (!allowance.allowed) {
+    return res.status(429).json({ error: "You've used this month's free breakdowns. A pass removes the limit.", limit: true, allowance: true, code: 'error' });
   }
 
   // Per-user cap runs after validation so malformed requests do not use up a student's daily reads.
