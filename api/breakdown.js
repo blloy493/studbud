@@ -9,7 +9,8 @@
 // Response: { status: 'needs_info', questions: [string], options: [[string]] }
 //   options[i] = 2-5 tap-to-select answers for questions[i], or [] when the answer is free text. Older clients ignore `options`.
 //        or { status: 'ready', type, title, steps: [{ kind, title, detail, ... }] }
-//        or { status: 'beta_limit', tier, trialEndsAt, resetsAt, remaining } (HTTP 200: trial over and this month's free plans used.
+//        or { status: 'beta_limit', tier, trialEndsAt, resetsAt, window, remaining } (HTTP 200: the free plans are used up.
+//             window 'lifetime' = the 3 free plans never reset (paywall test); 'month' = they reset on the 1st of the UTC month.
 //             The status name is kept so installed clients still show a wall; it is renamed with the extension update.)
 // Step kinds: 'do' | 'copy' (+ text) | 'citation' (+ style 'apa7'|'mla9', n) | 'question' (+ ask; no detail).
 //
@@ -372,7 +373,8 @@ export default async function handler(req, res) {
       status: 'beta_limit',
       tier: s.tier,
       trialEndsAt: s.trialEndsAt,
-      resetsAt: s.resetsAt,
+      resetsAt: s.resetsAt, // 0 when window is 'lifetime' (nothing resets)
+      window: s.window, // 'lifetime' (3 free plans, then the wall) | 'month' (monthly trickle)
       remaining: s.remaining,
     });
   }

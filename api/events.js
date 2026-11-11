@@ -40,9 +40,25 @@ const UPLOAD_EVENTS = [
   'upload_failed_too_large', 'upload_failed_unreadable', 'upload_failed_error',
 ];
 
+// Paywall test (3 free successful uploads, then a hard wall). Counts only, no text.
+// wall_shown: the paywall appeared at intake. wall_dismissed: the student closed it without opening checkout.
+// wall_reason_*: optional one-tap "not now" reason (too expensive / would use a chatbot / don't need it yet / just trying).
+// free_upload_1..3: the student's Nth successful free upload (sent by the client after a breakdown succeeds). The server-side
+// counter in the entitlement check is the source of truth for the limit; these only show how many students reach each step.
+// checkout_opened_<plan>: the student opened Stripe Checkout for that plan (this is the plan-selected signal; 'group' is
+// kept so older installs still record).
+// checkout_completed: the extension detected the paid entitlement after checkout. This is client-detected and will
+// under-count if the student closes the tab before it fires, so use the Stripe webhook records as the source of truth for purchases.
+const WALL_EVENTS = [
+  'wall_shown', 'wall_dismissed',
+  'wall_reason_too_expensive', 'wall_reason_chatbot', 'wall_reason_not_yet', 'wall_reason_trying',
+];
+const FREE_UPLOAD_EVENTS = ['free_upload_1', 'free_upload_2', 'free_upload_3'];
 const BILLING_EVENTS = [
-  'wall_shown',
+  ...WALL_EVENTS,
+  ...FREE_UPLOAD_EVENTS,
   'checkout_opened_weekly', 'checkout_opened_semester', 'checkout_opened_yearly', 'checkout_opened_group',
+  'checkout_completed',
 ];
 
 const EVENTS = new Set([

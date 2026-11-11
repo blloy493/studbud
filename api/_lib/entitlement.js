@@ -1,8 +1,11 @@
 // api/_lib/entitlement.js
 // Access tiers for an install (the anonymous userId breakdown.js already uses):
 //   paid  -> unlimited while paid:<userId>.exp is in the future (passes and the legacy monthly subscription)
-//   trial -> unlimited for TRIAL_DAYS, starting at the FIRST SUCCESSFUL INTAKE (see startTrial). Until then it is "available, not started".
-//   free  -> after the trial: a small monthly allowance (plan / stuck / chat), reset on the 1st of each UTC month
+//   trial -> unlimited for TRIAL_DAYS, starting at the FIRST SUCCESSFUL INTAKE (see recordUse). OFF by default (TRIAL_DAYS=0).
+//   free  -> an allowance (plan / stuck / chat). PAYWALL TEST: FREE_WINDOW=lifetime (default) means the allowance never resets:
+//            3 successful plans, then a hard wall. FREE_WINDOW=month brings back the trickle (resets on the 1st of each UTC month).
+// To go from the paywall test to the trickle with no code change: set FREE_WINDOW=month, ALLOW_STUCK=3, ALLOW_CHAT=5 and redeploy.
+// Lifetime counts live under a fresh key (usage:<userId>:life), so every install starts at zero when this ships.
 // Separate from ent:<userId>, the old beta unlock written by api/feedback.js. That path is retired by the paid-product pivot.
 // Paid access must NOT depend on betaOpen(): ending the beta must not cut off paying students.
 //
@@ -39,15 +42,19 @@ function intEnv(name, fallback) {
 // Read on every call so a redeploy with new env vars takes effect with no code edit.
 export function limits() {
   return {
-    trialDays: intEnv('TRIAL_DAYS', 14),
-    allow: { plan: intEnv('ALLOW_PLAN', 3), stuck: intEnv('ALLOW_STUCK', 3), chat: intEnv('ALLOW_CHAT', 5) },
+    trialDays: intEnv('TRIAL_DAYS', 0), // 0 = no timed trial (paywall test). Set TRIAL_DAYS=14 to bring it back.
+    // 'lifetime' = the free allowance never resets. 'month' = resets on the 1st of each UTC month (the trickle).
+    window: process.env.FREE_WINDOW === 'month' ? 'month' : 'lifetime',
+    // plan = successful assignment breakdowns. stuck / chat defaults are generous for the lifetime window (guard.js still caps
+    // per-IP and global daily use); drop them to 3 / 5 when switching to FREE_WINDOW=month.
+    allow: { plan: intEnv('ALLOW_PLAN', 3), stuck: intEnv('ALLOW_STUCK', 25), chat: intEnv('ALLOW_CHAT', 25) },
   };
 }
 
 const paidKey = (userId) => `paid:${userId}`;
 const trialKey = (userId) => `trial:${userId}`;
 const monthKey = () => new Date().toISOString().slice(0, 7); // UTC, e.g. 2026-12
-const usageKey = (userId) => `usage:${userId}:${monthKey()}`;
+const usageKey = (userId, window) => (window === 'month' ? `usage:${userId}:${monthKey()}` : `usage:${userId}:life`);
 
 function nextResetMs() {
   const d = new Date();
@@ -112,18 +119,22 @@ export async function endNow(userId) {
 //   remaining is the FREE-tier allowance left this month; it is not consumed while on trial or paid.
 export async function getStatus(userId) {
   const r = redisOrThrow();
-  const { trialDays, allow } = limits();
+  const { trialDays, allow, window } = limits();
   const now = Date.now();
   const [exp, trialStart, usage] = await Promise.all([
     paidUntil(userId),
-    r.get(trialKey(userId)),
-    r.hgetall(usageKey(userId)),
+    trialDays > 0 ? r.get(trialKey(userId)) : null,
+    r.hgetall(usageKey(userId, window)),
   ]);
   const used = (k) => Number((usage && usage[k]) || 0);
   const remaining = Object.fromEntries(KINDS.map((k) => [k, Math.max(0, allow[k] - used(k))]));
-  const base = { exp, resetsAt: nextResetMs(), remaining };
+  // resetsAt is 0 in the lifetime window (nothing resets). The extension must not print a reset date when it is 0.
+  const base = { exp, window, resetsAt: window === 'month' ? nextResetMs() : 0, remaining };
 
   if (exp > now) return { ...base, tier: 'paid' };
+
+  // No timed trial: straight to the free allowance.
+  if (trialDays === 0) return { ...base, tier: 'free', trialStarted: false, trialEndsAt: 0 };
 
   const start = Number(trialStart || 0);
   if (!start) return { ...base, tier: 'trial', trialStarted: false, trialEndsAt: 0 };
@@ -168,11 +179,17 @@ export async function recordUse(userId, kind, knownStatus) {
       return;
     }
 
-    const key = usageKey(userId);
+    const { window, allow } = limits();
+    const key = usageKey(userId, window);
     const p = r.pipeline();
     p.hincrby(key, kind, 1);
-    p.expire(key, 40 * 24 * 60 * 60);
-    await p.exec();
+    if (window === 'month') p.expire(key, 40 * 24 * 60 * 60); // the lifetime counter never expires
+    const results = await p.exec();
+    // Funnel: record the Nth successful free plan server-side (free_upload_1, _2, _3), so the client does not need to send it.
+    if (kind === 'plan') {
+      const n = Number(results && results[0]);
+      if (n >= 1 && n <= allow.plan) await recordServerEvent(userId, `free_upload_${n}`);
+    }
   } catch (err) {
     console.error('[entitlement] recordUse failed:', err);
   }

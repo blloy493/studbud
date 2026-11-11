@@ -1,6 +1,7 @@
 // api/checkout.js
 // Vercel serverless function. Deploy path: /api/checkout
-// Request:  { userId: string, plan: 'weekly' | 'semester' | 'yearly' }  (all one-time passes; the group pass is a later step)
+// Request:  { userId: string, plan: 'weekly' | 'semester' | 'yearly', currency?: 'usd' | 'cad' }  (all one-time passes; the group pass is a later step)
+//   currency = what the wall showed (from /api/plan (wantPrices)). If it is missing the visitor's country decides (CA -> cad, else usd); see _lib/pricing.js.
 // Response: { url: string }  (the extension opens it in a new tab, from a student click only)
 //
 // Requires env vars: STRIPE_SECRET_KEY, STRIPE_PRICE_WEEKLY, STRIPE_PRICE_SEMESTER, STRIPE_PRICE_YEARLY, SITE_URL (no trailing slash).
@@ -11,6 +12,7 @@
 import Stripe from 'stripe';
 import { guard } from './_lib/guard.js';
 import { USER_ID_RE } from './_lib/entitlement.js';
+import { currencyFor } from './_lib/pricing.js';
 
 let stripe;
 function getStripe() {
@@ -31,12 +33,14 @@ export default async function handler(req, res) {
   // Guesses sized for a ~100-person beta: tune from real usage.
   if (!(await guard(req, res, { name: 'checkout', ipDailyCap: 100, globalDailyCap: 2000 }))) return;
 
-  const { userId, plan } = req.body || {};
+  const { userId, plan, currency: shownCurrency } = req.body || {};
   if (typeof userId !== 'string' || !USER_ID_RE.test(userId)) {
     return res.status(400).json({ error: 'Update StudBud to the latest version and try again.' });
   }
   const cfg = typeof plan === 'string' ? PLANS[plan] : undefined;
   if (!cfg) return res.status(400).json({ error: 'Unknown plan' });
+  // The currency the wall showed (from /api/plan (wantPrices)), so the charge matches. Older clients send none: the visitor's country decides.
+  const currency = currencyFor(req, shownCurrency);
 
   const price = process.env[cfg.priceEnv];
   if (!price || !process.env.SITE_URL) {
@@ -48,6 +52,7 @@ export default async function handler(req, res) {
     const params = {
       mode: cfg.mode,
       line_items: [{ price, quantity: 1 }],
+      currency, // 'usd' | 'cad': picks that amount from the Price's currency_options (the Price must have it)
       client_reference_id: userId, // the webhook maps the payment back to this install with it
       metadata: { plan }, // the webhook reads the pass length from this
       allow_promotion_codes: true, // promo and gift codes are entered on the Stripe page
