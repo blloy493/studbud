@@ -1,5 +1,8 @@
 // api/checkout.js
 // Vercel serverless function. Deploy path: /api/checkout
+// This route also serves the plan-status check (body { action: 'plan', ... }), which lives in _lib/plan.js: the api/ folder is at
+// the 12-function limit, so there is no api/plan.js. Plan requests are handed off before checkout's own guard, so they keep
+// plan's own rate caps.
 // Request:  { userId: string, plan: 'weekly' | 'semester' | 'yearly', currency?: 'usd' | 'cad' }  (all one-time passes; the group pass is a later step)
 //   currency = what the wall showed (from /api/plan (wantPrices)). If it is missing the visitor's country decides (CA -> cad, else usd); see _lib/pricing.js.
 // Response: { url: string }  (the extension opens it in a new tab, from a student click only)
@@ -13,6 +16,7 @@ import Stripe from 'stripe';
 import { guard } from './_lib/guard.js';
 import { USER_ID_RE } from './_lib/entitlement.js';
 import { currencyFor } from './_lib/pricing.js';
+import { handlePlan } from './_lib/plan.js';
 
 let stripe;
 function getStripe() {
@@ -30,6 +34,9 @@ const PLANS = {
 };
 
 export default async function handler(req, res) {
+  // Plan-status requests (action: 'plan') go to _lib/plan.js, before this route's own guard and its lower caps.
+  if (req.body && req.body.action === 'plan') return handlePlan(req, res);
+
   // Guesses sized for a ~100-person beta: tune from real usage.
   if (!(await guard(req, res, { name: 'checkout', ipDailyCap: 100, globalDailyCap: 2000 }))) return;
 

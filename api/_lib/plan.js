@@ -1,6 +1,7 @@
-// api/plan.js
-// Vercel serverless function. Deploy path: /api/plan
-// Request:  { userId: string, wantPrices?: true }
+// api/_lib/plan.js
+// Not a route of its own (the api/ folder is at the 12-function limit). api/checkout.js calls handlePlan() when the request
+// body has action: 'plan', so the client posts to /api/checkout.
+// Request:  { action: 'plan', userId: string, wantPrices?: true }
 // Response: { paid, exp, canManage, tier, trialStarted, trialEndsAt, remaining, allowance, resetsAt, window }
 //   paid          true while paid access is active (exp is in the future)
 //   exp           when paid access runs to; also lets the client tell "never paid" (0) from "lapsed" (past timestamp)
@@ -20,11 +21,11 @@
 // paid / exp / canManage keep their old meaning, so installed clients keep working.
 // Fails soft: if Redis is unreachable it reports tier 'unknown' rather than erroring, so the widget keeps working.
 
-import { guard } from './_lib/guard.js';
-import { USER_ID_RE, getStatus, customerFor, limits } from './_lib/entitlement.js';
-import { currencyFor, getPrices } from './_lib/pricing.js';
+import { guard } from './guard.js';
+import { USER_ID_RE, getStatus, customerFor, limits } from './entitlement.js';
+import { currencyFor, getPrices } from './pricing.js';
 
-export default async function handler(req, res) {
+export async function handlePlan(req, res) {
   // Called on every widget open and a few times after checkout, so the caps are higher than checkout's.
   if (!(await guard(req, res, { name: 'plan', ipDailyCap: 2000, globalDailyCap: 20000 }))) return;
 
