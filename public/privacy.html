@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StudBud Privacy Policy</title>
+<style>
+  :root { --maroon: #590016; --stone: #e7e5e4; --paper: #faf9f8; --ink: #2a2224; --muted: #6b5e61; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+  header { background: var(--maroon); color: var(--stone); padding: 40px 0 32px; }
+  header h1 { margin: 0 0 8px; font: 700 clamp(28px, 5vw, 38px)/1.15 Georgia, "Times New Roman", serif; }
+  header p { margin: 0; font-size: 15px; }
+  header a { color: var(--stone); }
+  h2 { margin: 36px 0 10px; font: 700 22px/1.25 Georgia, "Times New Roman", serif; color: var(--maroon); }
+  p { margin: 0 0 14px; }
+  ul { margin: 0 0 14px; padding-left: 1.3em; }
+  li { margin-bottom: 8px; }
+  a { color: var(--maroon); overflow-wrap: anywhere; }
+  a:focus-visible { outline: 3px solid var(--maroon); outline-offset: 3px; }
+  header a:focus-visible { outline-color: var(--stone); }
+  footer { margin-top: 48px; padding: 24px 0 40px; border-top: 1px solid var(--stone); color: var(--muted); font-size: 15px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>StudBud Privacy Policy</h1>
+    <p>Effective date: November 11, 2026 &middot; Version: 1.1</p>
+    <p>Contact: <a href="mailto:studbud.team@gmail.com">studbud.team@gmail.com</a></p>
+  </div>
+</header>
+<main class="wrap">
+<p>StudBud is a Chrome extension that breaks assignments into steps and gives study help through an on-screen avatar. It is operated by Brody Lloy, based in Canada. This policy explains what data StudBud collects, why, and who receives it.</p>
+<h2>1. Summary</h2>
+<ul><li>You choose what to type, paste or upload. StudBud does not read the web pages you visit.</li><li>Assignment text, uploaded documents and chat messages you submit are sent to our server and to OpenAI so an AI model can generate steps and help.</li><li>We collect anonymous usage statistics tied to a random install ID, not to your name or account.</li><li>StudBud has a limited free allowance and paid passes (StudBud Unlimited). Payments are handled by Stripe. We never see or store your card number. If you buy a pass, your install ID is linked to that purchase (see section 6).</li><li>We do not sell your data and we do not use it for advertising.</li></ul>
+<h2>2. Data stored on your device</h2>
+<p>The following is stored in Chrome's extension storage on your device:</p>
+<ul><li>Your current plan: the assignment text you submitted, the generated steps, your progress, XP, and focus-timer state.</li><li>Any text you type into step fields (for example, citation details).</li><li>Your avatar's name and your settings (hidden avatar, extension on/off, list of sites where StudBud is turned off).</li><li>Usage counters (for example, number of assignments analyzed and completed, and the state of the feedback card).</li><li>A randomly generated install ID (see section 4).</li><li>A local log of "Coming Soon" buttons you clicked (up to 200 entries).</li></ul>
+<p>"Reset progress" in the extension popup clears your plan and progress. It does not clear your avatar name, usage counters, install ID, or settings. Uninstalling the extension removes all locally stored data.</p>
+<p>The extension reads the address (hostname) of the page it is running on only to check it against your list of excluded sites. This check happens on your device and the hostname is not sent anywhere. (The "Report a problem" form can include the hostname of your current tab if Chrome provides it to the extension; see section 6.)</p>
+<h2>3. Data sent to our server and to OpenAI</h2>
+<p>When you use the features below, the data listed is sent to our server (hosted on Vercel) and forwarded to OpenAI's API to generate a response:</p>
+<ul><li>Assignment breakdown: the assignment text you submit (up to 8,000 characters), your answers to any clarifying questions, and, for worksheets, the text of an individual question when you expand it.</li><li>Document upload: if you upload an assignment (a PDF, PNG or JPEG of up to 3 MB), the file is sent to our server and forwarded to OpenAI so a vision model can read its text and describe any graphs or figures. The file name is not sent. We do not store the file or the text read from it.</li><li>"I'm stuck" help: the step you are working on, the type of help you selected, your assignment text (up to 4,000 characters), and earlier help already shown for that step.</li><li>Avatar chat: the message you type (up to 500 characters), recent messages from the same conversation, your avatar's name, and details of your current step (assignment title, step text, step number). Messages are also sent to OpenAI's moderation service for safety.</li></ul>
+<p>This data is used only to produce the response you requested. Please do not paste or upload information you would not want processed by an AI service, such as passwords, government ID numbers, or other people's personal information.</p>
+<p>OpenAI processes this data under its own API terms and privacy policy (<a href="https://openai.com/policies">https://openai.com/policies</a>).</p>
+<p>We do not intentionally store the text you submit. However, if a request fails, our hosting provider's error logs may contain error messages or a snippet of the model's output, which can relate to your assignment. Our hosting provider keeps these logs for a limited time under its own retention policy, and we use them to debug problems and improve StudBud.</p>
+<p><strong>Access checks:</strong> when StudBud loads, and when you open the plan screen, the extension sends your install ID to our server to find out whether your free allowance, a free trial (if one is running) or a pass applies. When the pass screen is shown, it also asks our server for the pass prices. Our server uses the country that our hosting provider derives from your IP address only to choose whether to show prices in Canadian or US dollars. We do not store that country. When you choose a pass, the extension sends your install ID, the pass you chose and the currency shown, and opens Stripe's checkout page in a new tab.</p>
+<h2>4. Anonymous usage data</h2>
+<p>StudBud generates a random install ID the first time you use it. It is not linked to your name, email, or Google account, unless you buy a pass (see section 6). We use it to:</p>
+<ul><li>Count usage events: for example, plan created, step completed, plan completed, free upload used (first, second, third), free allowance used up, pass screen shown, the reason you tap on the pass screen (if you tap one), checkout opened, purchase completed, and the time taken to complete steps or plans.</li><li>Apply your free allowance: a count of how many plans, help requests and chat messages you have used. Depending on how the allowance is set up at the time, this count covers either all of your use of StudBud or the current calendar month. If a free trial is running, we also record when it started.</li><li>Apply daily usage limits per install.</li><li>Count, without any content, how often help is requested at each level and how often you flag a worked example as wrong. These counters are aggregated by help level and assignment type.</li><li>Count interest in upcoming features, including which integrations (such as Canvas or Google Calendar) you ticked.</li></ul>
+<p>Usage events never include the text of your assignments, steps, or chat messages. Because the install ID is random, we cannot tell who you are from it.</p>
+<h2>5. Feedback</h2>
+<p>If you answer StudBud's feedback card, we store your answers (yes/no and any free-text comment of up to 500 characters) with your install ID. We also store non-content context about your use: what prompted the card, assignment type, number of steps, number of steps completed, counts of plans, analyses, and avatar messages, and how many times the card has been shown. We read free-text feedback. Do not include personal information in it.</p>
+<h2>6. Payments, problem reports and the closed waitlist</h2>
+<p><strong>Payments.</strong> Passes are one-time payments and do not renew automatically. When you choose a pass, StudBud opens a checkout page hosted by Stripe, our payment processor. Stripe collects the details needed to take payment, such as your email address, card details and billing country or postal code, under its own privacy policy (<a href="https://stripe.com/privacy">https://stripe.com/privacy</a>). We do not receive or store your card number. We can see your purchase in our Stripe account, including the email address you gave Stripe.</p>
+<p>On our side we store your install ID, the pass you bought, the date your access ends, and a Stripe customer ID if Stripe created one. This links your install ID to your purchase, so for someone who buys a pass the install ID is no longer anonymous to us. We use this only to apply your access, answer support requests, process refunds and keep accounting records. Promo and gift codes are entered on the Stripe page. A code that makes the total zero does not ask for a card; we record that a code was redeemed, with no payment details.</p>
+<p><strong>Problem reports.</strong> If you use "Report a problem" in the extension popup, we receive your description (up to 1,000 characters), your email address only if you choose to enter one so we can reply, the extension version, and the hostname of your current tab if Chrome makes it available to the extension. A report does not include your install ID, your assignment or any page content. Reports are stored in our database. Do not include personal information in them.</p>
+<p><strong>Waitlist (closed).</strong> During the beta, an optional waitlist collected email addresses. They are stored separately from usage data and are not linked to install IDs. The waitlist is now closed. We will use these addresses only to tell you once that paid plans have launched, and then delete them. You can ask us to delete yours sooner (see section 10).</p>
+<h2>7. Security and abuse prevention</h2>
+<p>To prevent abuse and control costs, our server applies daily request limits per install, per network (IP address), and across all users.</p>
+<ul><li>Install limits: a counter keyed to your install ID and the date.</li><li>Network limits: your IP address is converted to a one-way hash on our server, and only that hash (a shortened code) is used for a counter keyed to the date. We do not store your raw IP address in our database. A hash of an IP address is pseudonymous, not fully anonymous.</li><li>These daily counters are deleted automatically after 48 hours.</li><li>Free allowance counters (section 4) are keyed to your install ID. Monthly counters are keyed to the calendar month and are deleted automatically about 40 days after their last update. A counter that covers all of your use is kept for as long as needed to apply the allowance.</li><li>Our server checks that requests come from the StudBud extension. If a request comes from another origin, we log that origin (the website or extension address, not your IP) in our server logs.</li></ul>
+<p>Our server runs on Vercel and our database is provided by Upstash. Both process data on our behalf under their own terms and privacy policies (Vercel: <a href="https://vercel.com/legal/privacy-policy">https://vercel.com/legal/privacy-policy</a>). Vercel also processes standard request metadata, including IP addresses, to deliver the service and in its own logs. Data is stored in our database until it is deleted as described in section 10.</p>
+<p>Data in transit to our server is encrypted over HTTPS. Access to our database and API keys is restricted to the operator.</p>
+<h2>8. What we do not do</h2>
+<ul><li>We do not sell your data or share it for advertising.</li><li>We do not read the content of the pages you visit, and we do not collect your browsing history.</li><li>We do not use your data for credit, lending, or insurance decisions.</li><li>We do not allow humans to read your data except where needed for security, to comply with law, to read feedback and problem reports you submit, or to handle purchases, refunds and support.</li></ul>
+<h2>9. Extension permissions</h2>
+<p>StudBud requests only the following:</p>
+<ul><li>"storage": to save your plan, progress, and settings on your device.</li><li>Access to our server (studbud-two.vercel.app): to send the requests described in section 3 and the anonymous data in sections 4 to 6.</li><li>A content script that runs on all websites ("all URLs"): this exists only so the avatar and task widget can appear on whatever page you are studying on. The script does not read, collect, or transmit page content, form fields, or your browsing history. You can turn StudBud off on specific sites or everywhere from the extension popup.</li><li>Its image files are accessible to web pages so the avatar can display.</li></ul>
+<p>Opening Stripe's checkout page in a new tab when you choose a pass needs no extra permission. StudBud does not request permissions for tabs, history, cookies, bookmarks, downloads, or screen capture.</p>
+<h2>10. Retention, access, and deletion</h2>
+<ul><li>Daily limit counters (section 7) expire automatically after 48 hours, and monthly allowance counters about 40 days after their last update. An allowance counter that covers all of your use is kept as long as needed to apply the allowance.</li><li>Anonymous usage data and feedback are kept for up to 24 months.</li><li>Purchase records on our side are kept as long as needed to apply your access, answer support requests, process refunds and keep accounting records. Stripe keeps its own payment records as required by law.</li><li>Problem reports are kept until we delete them; only the most recent 500 are kept.</li><li>Waitlist emails are deleted after we send the one launch notice, or sooner if you ask.</li><li>Anonymous usage data is tied only to a random ID that is not shown to you, so we cannot locate or delete records for a specific person. The exception is a purchase: email us from the address you used at checkout and we can find and delete the records linked to your purchase on our side. Uninstalling StudBud stops all collection.</li></ul>
+<p>To request access to or deletion of your waitlist email, your purchase records or a problem report, or to ask any privacy question, email <a href="mailto:studbud.team@gmail.com">studbud.team@gmail.com</a>. Canadian residents may also have rights under applicable privacy law, including the right to complain to the Office of the Privacy Commissioner of Canada.</p>
+<h2>11. Age</h2>
+<p>StudBud is intended for university and college students. It is not directed at children under 13, and we do not knowingly collect their data. If you are under 13, please do not use StudBud.</p>
+<p>Buying a pass is a contract. If you have not reached the age of majority where you live (18 or 19 in Canada, depending on the province or territory), please get a parent or guardian's permission before buying.</p>
+<p>If you believe a child under 13 has used StudBud, email us at the address above. Usage data is tied only to a random install ID, so we may not be able to find it, but uninstalling stops all collection, and we will delete any email address, purchase record or problem report that we can link to the child.</p>
+<h2>12. Changes</h2>
+<p>We may update this policy. The effective date above will change, and material changes will be noted in the extension or on this page.</p>
+<footer><p><a href="index.html">Back to StudBud</a></p></footer>
+</main>
+</body>
+</html>

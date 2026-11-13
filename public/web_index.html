@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StudBud: step-by-step help to finish your assignments</title>
+<meta name="description" content="StudBud is a Chrome extension that breaks an assignment into small steps and walks you through them until it's done.">
+<style>
+  :root {
+    --maroon: #590016;
+    --stone: #e7e5e4;
+    --paper: #faf9f8;
+    --gold: #D8B45B;
+    --ink: #2a2224;
+    --muted: #6b5e61;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+  header { background: var(--maroon); color: var(--stone); padding: 56px 0 48px; }
+  header h1 { margin: 0 0 12px; font: 700 clamp(32px, 6vw, 46px)/1.1 Georgia, "Times New Roman", serif; }
+  header p { margin: 0; max-width: 34em; font-size: 19px; }
+  .cta {
+    display: inline-block; margin-top: 24px; padding: 12px 22px;
+    background: var(--gold); color: var(--maroon); font-weight: 700;
+    text-decoration: none; border-radius: 8px;
+  }
+  .cta:hover { background: #e3c378; }
+  .cta:focus-visible, a:focus-visible { outline: 3px solid var(--maroon); outline-offset: 3px; }
+  header .cta:focus-visible { outline-color: var(--stone); }
+  section { padding: 40px 0 8px; }
+  h2 { margin: 0 0 12px; font: 700 26px/1.2 Georgia, "Times New Roman", serif; color: var(--maroon); }
+  p { margin: 0 0 14px; }
+  .steps { padding-left: 1.2em; margin: 0 0 14px; }
+  .steps li { margin-bottom: 8px; }
+  .passes { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin: 16px 0; }
+  .pass { background: #fff; border: 1px solid var(--stone); border-left: 5px solid var(--gold); border-radius: 8px; padding: 16px; }
+  .pass h3 { margin: 0 0 4px; font-size: 18px; color: var(--maroon); }
+  .pass .price { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+  .pass p { margin: 0; color: var(--muted); font-size: 15px; }
+  .note { color: var(--muted); font-size: 15px; }
+  a { color: var(--maroon); }
+  footer { margin-top: 48px; padding: 28px 0 40px; border-top: 1px solid var(--stone); color: var(--muted); font-size: 15px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>StudBud</h1>
+    <p>A Chrome extension that breaks your assignment into small steps and walks you through them until it's done.</p>
+    <a class="cta" href="https://chromewebstore.google.com/detail/studbud/pbgchfnkgiapbpafepmbmgmdmmknifac" id="store-link">Add to Chrome</a>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section>
+    <h2>What StudBud does</h2>
+    <p>Upload or paste your assignment. StudBud turns it into one clear step at a time, with a short note on how to approach each one. It organizes the work and explains what each question is asking. It does not do the work for you.</p>
+    <ol class="steps">
+      <li>Upload a PDF or image of the assignment, or paste the text.</li>
+      <li>Answer a couple of quick questions if StudBud needs more detail.</li>
+      <li>Follow the steps. An on-screen avatar gives you hints when you're stuck.</li>
+    </ol>
+    <p>You get 3 free assignment breakdowns to try it. After that, you can buy a pass.</p>
+  </section>
+
+  <section id="passes">
+    <h2>StudBud Unlimited passes</h2>
+    <p>A pass gives you unlimited assignment breakdowns, step help and avatar chat for the length of the pass. Passes are one-time payments. They do not renew automatically.</p>
+    <div class="passes">
+      <div class="pass">
+        <h3>Semester pass</h3>
+        <p class="price">$14.99</p>
+        <p>Four months (120 days) of full access</p>
+      </div>
+      <div class="pass">
+        <h3>Yearly pass</h3>
+        <p class="price">$19.99</p>
+        <p>A full year of full access</p>
+      </div>
+      <div class="pass">
+        <h3>Weekly pass</h3>
+        <p class="price">$2.99</p>
+        <p>Seven days, for a deadline crunch</p>
+      </div>
+    </div>
+    <p class="note">Prices above are in US dollars. Canadian customers see the Canadian price at checkout. Payment is handled by Stripe. StudBud never sees your card number. You buy a pass from inside the extension.</p>
+  </section>
+
+  <section id="refunds">
+    <h2>Refund policy</h2>
+    <p>You can get a full refund within 7 days of purchase. Email <a href="mailto:studbud.team@gmail.com">studbud.team@gmail.com</a> from the address you used at checkout and tell us which pass you bought. We reply within about 2 business days. A refund ends your access to that pass.</p>
+  </section>
+
+  <section id="support">
+    <h2>Contact and support</h2>
+    <p>Questions, problems or privacy requests: <a href="mailto:studbud.team@gmail.com">studbud.team@gmail.com</a>. You can also use "Report a problem" in the extension popup.</p>
+  </section>
+
+  <footer>
+    <p>StudBud is operated by Brody Lloy, based in Canada.</p>
+    <p><a href="privacy.html" id="privacy-link">Privacy policy</a></p>
+  </footer>
+
+</main>
+</body>
+</html>
