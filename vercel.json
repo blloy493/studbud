@@ -4,8 +4,7 @@
       { "source": "/api/feedback", "destination": "/api/forms?action=feedback" },
       { "source": "/api/interest", "destination": "/api/forms?action=interest" },
       { "source": "/api/waitlist", "destination": "/api/forms?action=waitlist" },
-       { "rewrites": [{ "source": "/", "destination": "/web_index.html" }]
-      }
+      { "source": "/", "destination": "/web_index.html" }
     ]
   }
 
