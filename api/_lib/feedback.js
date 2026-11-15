@@ -19,7 +19,7 @@
 // it is free text typed by students.
 
 import { Redis } from '@upstash/redis';
-import { guard } from './_lib/guard.js';
+import { guard } from './guard.js';
 
 const MAX_TEXT = 500; // keep in sync with FEEDBACK_MAX_LEN in content.js
 const DAILY_CAP = 5;  // submissions per anonId per UTC day (a legitimate student sends one)
