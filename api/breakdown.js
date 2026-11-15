@@ -98,7 +98,11 @@ const SYSTEM_PROMPT =
   'If the text is not an assignment at all, return needs_info asking the student to paste the assignment instructions.\n\n' +
   'STEP A - SUFFICIENCY CHECK. Decide whether you have enough information to build accurate steps. ' +
   'Typically you need: what the deliverable is; the topic or prompt; the stated requirements (length, number of sources, required sections or rubric criteria); ' +
-  'and, if the assignment needs citations, the required citation style. ' +
+  'and, if the assignment needs citations, the required citation format. ' +
+  'CITATION FORMAT RULES: if the text already names a citation format (APA, MLA, Chicago), never ask about it. ' +
+  'APA always means APA 7 and MLA always means MLA 9: never ask about an edition or version. ' +
+  'If the citation format is missing, ask exactly: "What format should your citations be in?" ' +
+  'Do not reword that question or add the name of a style to it. ' +
   'If the text is self-contained (for example, a list of questions to answer), return ready without asking anything. ' +
   'Ask only about missing information that would change the steps. Never ask about anything the text already states. ' +
   'Never ask for preferences or for things the student cannot know. If something is missing, return: ' +
@@ -137,7 +141,8 @@ const SYSTEM_PROMPT =
   '- kind "citation": also has "style" ("apa7" or "mla9") and "n" (source number, starting at 1). ' +
   'Use one citation step per source the student must cite, ONLY when the text or answers name APA or MLA as the style. ' +
   'The app collects the source details and formats the citation itself, so do not describe formatting rules in these steps. ' +
-  'If the number of sources is not stated, ask in STEP A. For any other citation style, use "do" steps instead.\n\n' +
+  'If the number of sources is not stated, ask in STEP A. For any other citation style, use "do" steps instead. ' +
+  'If the text names the format, do not ask which format to use.\n\n' +
   'FIGURES. The assignment text may end with a section "FIGURES IN THE DOCUMENT" describing graphs, charts or images the student can see in their own file, with [Figure N] markers in the text where they appear. ' +
   'When a step depends on a figure, end its detail with a new line (\n) in the form "See Figure 2, page 3: what to look at." (under 100 characters, always the last line) and keep figure references out of the rest of the detail (that line does not count toward the 200-character limit). ' +
   'Treat the descriptions as context only: never state a value, trend or conclusion read from a figure, and never put one in "ask". A figure never creates a requirement, option, list, limit or rule: those come only from the assignment text. If a figure is marked as not read reliably, tell the student to check it directly in their document.\n\n' +
@@ -152,7 +157,7 @@ const SYSTEM_PROMPT =
   '- No generic study-habit filler.\n\n' +
   'EXAMPLE step for a numbered question ("Brown eyes are dominant to blue. A brown-eyed man whose mother was blue-eyed marries a brown-eyed woman whose father was blue-eyed. What is the probability of a blue-eyed child?"): ' +
   '{"kind":"question","title":"Q4: Find the probability of a blue-eyed child","ask":"Brown eyes are dominant to blue. A brown-eyed man whose mother was blue-eyed marries a brown-eyed woman whose father was blue-eyed. What is the probability of a blue-eyed child?"}\n' +
-  'EXAMPLE needs_info: {"status":"needs_info","questions":[{"q":"Which citation style does the assignment require?","options":["APA 7","MLA 9","Chicago"]},{"q":"How many sources must you cite?","options":["1","2","3","4","5 or more"]}]}\n' +
+  'EXAMPLE needs_info: {"status":"needs_info","questions":[{"q":"What format should your citations be in?","options":["APA 7","MLA 9","Chicago"]},{"q":"How many sources must you cite?","options":["1","2","3","4","5 or more"]}]}\n' +
   'EXAMPLE ready: {"status":"ready","type":"research_paper","title":"MLA Annotated Bibliography","steps":[' +
   '{"kind":"citation","title":"Add the citation for source 1","detail":"Start with the source you know best.","style":"mla9","n":1},' +
   '{"kind":"do","title":"Write the annotation for source 1","detail":"Summarize the source in 3-4 sentences, as the instructions require, directly below its citation."},' +
