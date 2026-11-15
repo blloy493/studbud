@@ -6,7 +6,7 @@
 // set automatically by the Upstash Redis Marketplace integration on Vercel.
 
 import { Redis } from '@upstash/redis';
-import { guard } from './_lib/guard.js';
+import { guard } from './guard.js';
 
 // fromEnv() only looks for the unprefixed UPSTASH_REDIS_REST_URL/TOKEN names.
 // Vercel prefixed these with the store name (STUDBUD_INTEREST_) because
