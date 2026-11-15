@@ -1,14 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Thank you page</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>StudBud: you're all set</title>
+<style>
+  :root { --maroon: #590016; --stone: #e7e5e4; --paper: #faf9f8; --ink: #2a2224; --muted: #6b5e61; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+  header { background: var(--maroon); color: var(--stone); padding: 40px 0 32px; }
+  header h1 { margin: 0 0 8px; font: 700 clamp(28px, 5vw, 38px)/1.15 Georgia, "Times New Roman", serif; }
+  header p { margin: 0; font-size: 17px; }
+  h2 { margin: 36px 0 10px; font: 700 22px/1.25 Georgia, "Times New Roman", serif; color: var(--maroon); }
+  p { margin: 0 0 14px; }
+  ol { margin: 0 0 14px; padding-left: 1.3em; }
+  li { margin-bottom: 8px; }
+  a { color: var(--maroon); overflow-wrap: anywhere; }
+  a:focus-visible { outline: 3px solid var(--maroon); outline-offset: 3px; }
+  footer { margin-top: 48px; padding: 24px 0 40px; border-top: 1px solid var(--stone); color: var(--muted); font-size: 15px; }
+</style>
 </head>
 <body>
-    <h1>All set!</h1>
-    <p>You can close this tab to return to StudBud.</p>
-    <!-- This is an HTML comment -->
+<header>
+  <div class="wrap">
+    <h1>You're all set</h1>
+    <p>Thanks for buying StudBud Unlimited.</p>
+  </div>
+</header>
+<main class="wrap">
+<h2>What to do now</h2>
+<ol>
+  <li>Close this tab.</li>
+  <li>Go back to the tab where you were using StudBud. Your pass should appear within a few seconds. You don't need to reload.</li>
+  <li>If StudBud still shows the free plan after a minute, refresh that page.</li>
+</ol>
+<p>Still not showing? Email <a href="mailto:studbud.team@gmail.com">studbud.team@gmail.com</a> from the address you used at checkout and tell us which pass you bought.</p>
+<p>Changed your mind? You can get a full refund within 7 days. See the <a href="/#refunds">refund policy</a>.</p>
+<footer><p><a href="/">Back to StudBud</a></p></footer>
+</main>
 </body>
 </html>
-
-    

@@ -1,12 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Thank you page</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>StudBud: checkout cancelled</title>
+<style>
+  :root { --maroon: #590016; --stone: #e7e5e4; --paper: #faf9f8; --ink: #2a2224; --muted: #6b5e61; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+  header { background: var(--maroon); color: var(--stone); padding: 40px 0 32px; }
+  header h1 { margin: 0 0 8px; font: 700 clamp(28px, 5vw, 38px)/1.15 Georgia, "Times New Roman", serif; }
+  header p { margin: 0; font-size: 17px; }
+  h2 { margin: 36px 0 10px; font: 700 22px/1.25 Georgia, "Times New Roman", serif; color: var(--maroon); }
+  p { margin: 0 0 14px; }
+  a { color: var(--maroon); overflow-wrap: anywhere; }
+  a:focus-visible { outline: 3px solid var(--maroon); outline-offset: 3px; }
+  footer { margin-top: 48px; padding: 24px 0 40px; border-top: 1px solid var(--stone); color: var(--muted); font-size: 15px; }
+</style>
 </head>
 <body>
-    <h1>Your subscription has been cancelled.</h1>
-    <p>We're sorry to see you go! You can re-subscribe at any time.</p>
-    <!-- This is an HTML comment -->
+<header>
+  <div class="wrap">
+    <h1>Checkout cancelled</h1>
+    <p>You were not charged.</p>
+  </div>
+</header>
+<main class="wrap">
+<h2>What to do now</h2>
+<p>Close this tab and return to StudBud. Your free breakdowns and any active pass are unchanged. To buy a pass later, open the pass screen in the extension.</p>
+<p>Want to compare passes first? See the <a href="/#passes">pass prices</a>. Questions: <a href="mailto:studbud.team@gmail.com">studbud.team@gmail.com</a>.</p>
+<footer><p><a href="/">Back to StudBud</a></p></footer>
+</main>
 </body>
 </html>

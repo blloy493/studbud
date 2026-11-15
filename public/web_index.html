@@ -3,49 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StudBud: step-by-step help to finish your assignments</title>
-<meta name="description" content="StudBud is a Chrome extension that breaks an assignment into small steps and walks you through them until it's done.">
+<title>StudBud: finish your assignment one clear step at a time</title>
+<meta name="description" content="StudBud is a Chrome extension that breaks an assignment into small steps and walks you through them until it's done. Try 3 assignments free.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="StudBud: finish your assignment one clear step at a time">
+<meta property="og:description" content="A Chrome extension that breaks your assignment into small steps and walks you through them until it's done.">
 <style>
-  :root {
-    --maroon: #590016;
-    --stone: #e7e5e4;
-    --paper: #faf9f8;
-    --gold: #D8B45B;
-    --ink: #2a2224;
-    --muted: #6b5e61;
-  }
+  :root { --maroon: #590016; --stone: #e7e5e4; --paper: #faf9f8; --gold: #D8B45B; --ink: #2a2224; --muted: #6b5e61; }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body {
-    margin: 0;
-    background: var(--paper);
-    color: var(--ink);
-    font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
-  header { background: var(--maroon); color: var(--stone); padding: 56px 0 48px; }
-  header h1 { margin: 0 0 12px; font: 700 clamp(32px, 6vw, 46px)/1.1 Georgia, "Times New Roman", serif; }
+  header { background: var(--maroon); color: var(--stone); padding: 36px 0 44px; }
+  header .brand { margin: 0 0 28px; font: 700 20px/1 Georgia, "Times New Roman", serif; }
+  header h1 { margin: 0 0 14px; font: 700 clamp(32px, 6.5vw, 48px)/1.1 Georgia, "Times New Roman", serif; }
   header p { margin: 0; max-width: 34em; font-size: 19px; }
-  .cta {
-    display: inline-block; margin-top: 24px; padding: 12px 22px;
-    background: var(--gold); color: var(--maroon); font-weight: 700;
-    text-decoration: none; border-radius: 8px;
-  }
+  header .small { margin-top: 14px; font-size: 15px; }
+  header .small a { color: var(--stone); }
+  .cta { display: inline-block; margin-top: 24px; padding: 12px 22px; background: var(--gold); color: var(--maroon); font-weight: 700; text-decoration: none; border-radius: 8px; }
   .cta:hover { background: #e3c378; }
-  .cta:focus-visible, a:focus-visible { outline: 3px solid var(--maroon); outline-offset: 3px; }
-  header .cta:focus-visible { outline-color: var(--stone); }
+  .cta:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid var(--maroon); outline-offset: 3px; }
+  header .cta:focus-visible, header a:focus-visible { outline-color: var(--stone); }
   section { padding: 40px 0 8px; }
   h2 { margin: 0 0 12px; font: 700 26px/1.2 Georgia, "Times New Roman", serif; color: var(--maroon); }
   p { margin: 0 0 14px; }
-  .steps { padding-left: 1.2em; margin: 0 0 14px; }
-  .steps li { margin-bottom: 8px; }
+  ul, ol { margin: 0 0 14px; padding-left: 1.3em; }
+  li { margin-bottom: 8px; }
+  a { color: var(--maroon); }
+  .box { background: #fff; border: 1px solid var(--stone); border-left: 5px solid var(--gold); border-radius: 8px; padding: 14px 16px; margin: 16px 0; font-size: 16px; }
+  .box p:last-child { margin-bottom: 0; }
+  .mobile-note { display: none; margin-top: 20px; }
+  @media (hover: none) and (pointer: coarse) { .mobile-note { display: block; } }
+  .video { position: relative; aspect-ratio: 16 / 9; background: var(--maroon); border-radius: 8px; overflow: hidden; margin: 16px 0; }
+  .video video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: var(--maroon); }
+  .video .soon { position: absolute; inset: 0; display: grid; place-items: center; color: var(--stone); font-size: 16px; pointer-events: none; }
+  .video.ready .soon { display: none; }
   .passes { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin: 16px 0; }
   .pass { background: #fff; border: 1px solid var(--stone); border-left: 5px solid var(--gold); border-radius: 8px; padding: 16px; }
   .pass h3 { margin: 0 0 4px; font-size: 18px; color: var(--maroon); }
   .pass .price { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
   .pass p { margin: 0; color: var(--muted); font-size: 15px; }
   .note { color: var(--muted); font-size: 15px; }
-  a { color: var(--maroon); }
   footer { margin-top: 48px; padding: 28px 0 40px; border-top: 1px solid var(--stone); color: var(--muted); font-size: 15px; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -54,28 +52,69 @@
 
 <header>
   <div class="wrap">
-    <h1>StudBud</h1>
-    <p>A Chrome extension that breaks your assignment into small steps and walks you through them until it's done.</p>
+    <p class="brand">StudBud</p>
+    <h1>Finish your assignment one clear step at a time.</h1>
+    <p>StudBud is a Chrome extension for university and college students. Upload your assignment and it breaks the work into small steps, with a short note on how to approach each one. It organizes the work. You do the work.</p>
     <a class="cta" href="https://chromewebstore.google.com/detail/studbud/pbgchfnkgiapbpafepmbmgmdmmknifac" id="store-link">Add to Chrome</a>
+    <p class="small">Free to try: 3 assignment breakdowns, no account needed. Parent? <a href="#parents">See what it does and costs.</a></p>
   </div>
 </header>
 
 <main class="wrap">
 
-  <section>
-    <h2>What StudBud does</h2>
-    <p>Upload or paste your assignment. StudBud turns it into one clear step at a time, with a short note on how to approach each one. It organizes the work and explains what each question is asking. It does not do the work for you.</p>
-    <ol class="steps">
-      <li>Upload a PDF or image of the assignment, or paste the text.</li>
-      <li>Answer a couple of quick questions if StudBud needs more detail.</li>
-      <li>Follow the steps. An on-screen avatar gives you hints when you're stuck.</li>
+  <div class="box mobile-note">
+    <p>Chrome extensions can't be installed on phones or tablets. Open this page on your computer to install StudBud.</p>
+    <p><a href="mailto:" id="email-link">Email me this page</a></p>
+  </div>
+
+  <section id="demo">
+    <h2>Watch StudBud work through an assignment</h2>
+    <div class="video">
+      <video controls playsinline preload="metadata">
+        <source src="media/demo.mp4#t=0.1" type="video/mp4">
+        <!-- <track kind="captions" src="media/demo.vtt" srclang="en" label="English"> -->
+      </video>
+      <span class="soon">Demo video coming soon</span>
+    </div>
+    <p class="note">Uploading an assignment, following the steps and asking for help.</p>
+  </section>
+
+  <section id="how">
+    <h2>How StudBud helps</h2>
+    <ul>
+      <li><strong>One step at a time.</strong> You see only the step you're on, so you always know what to do next.</li>
+      <li><strong>A note on how to approach each step.</strong> StudBud explains what each question is asking. It does not write the answer.</li>
+      <li><strong>Help when you're stuck.</strong> The on-screen avatar gives hints that get more detailed if you still need them.</li>
+      <li><strong>No switching tabs.</strong> The steps and the avatar sit on the page you're already working on.</li>
+      <li><strong>Optional focus timer.</strong> A 25-minute timer for each step, and an avatar that levels up as you finish steps.</li>
+    </ul>
+    <p class="note">StudBud can miss parts of complicated PDFs, such as tables, graphs and long structured prompts. Skim the steps against your assignment sheet before you start.</p>
+  </section>
+
+  <section id="install">
+    <h2>How to install StudBud</h2>
+    <div class="video">
+      <video controls playsinline preload="metadata">
+        <source src="media/install.mp4#t=0.1" type="video/mp4">
+        <!-- <track kind="captions" src="media/install.vtt" srclang="en" label="English"> -->
+      </video>
+      <span class="soon">Install video coming soon</span>
+    </div>
+    <ol>
+      <li><strong>Use Chrome on a computer.</strong> Windows, Mac, Linux and Chromebook work. Phones and tablets can't install Chrome extensions.</li>
+      <li><strong>Add it from the Chrome Web Store.</strong> Open the <a href="https://chromewebstore.google.com/detail/studbud/pbgchfnkgiapbpafepmbmgmdmmknifac">StudBud page</a>, click "Add to Chrome", then "Add extension" in the pop-up.</li>
+      <li><strong>Pin StudBud (optional).</strong> Click the puzzle-piece icon in the Chrome toolbar, then the pin next to StudBud. This keeps its settings one click away.</li>
+      <li><strong>Open your assignment.</strong> Open or refresh the page you're working on. The avatar appears at the bottom left and the step widget at the bottom right. Chrome blocks extensions on the Chrome Web Store and chrome:// pages, so StudBud won't show there.</li>
+      <li><strong>Add your assignment.</strong> Name your avatar, then upload a PDF, PNG or JPEG (up to 3 MB) or paste the text. Answer any quick questions, then follow the steps.</li>
     </ol>
-    <p>You get 3 free assignment breakdowns to try it. After that, you can buy a pass.</p>
+    <div class="box">
+      <p><strong>About Chrome's permission pop-up.</strong> Chrome will say StudBud can "read and change all your data on all websites". StudBud needs this only to show the avatar and step widget on whatever page you're studying on. It does not read page content, form fields or your browsing history. You can turn StudBud off on any site from its toolbar popup. Details are in the <a href="privacy.html">privacy policy</a>.</p>
+    </div>
   </section>
 
   <section id="passes">
     <h2>StudBud Unlimited passes</h2>
-    <p>A pass gives you unlimited assignment breakdowns, step help and avatar chat for the length of the pass. Passes are one-time payments. They do not renew automatically.</p>
+    <p>After your 3 free breakdowns, a pass gives you unlimited assignment breakdowns, step help and avatar chat for the length of the pass. Passes are one-time payments. They do not renew automatically.</p>
     <div class="passes">
       <div class="pass">
         <h3>Semester pass</h3>
@@ -96,6 +135,23 @@
     <p class="note">Prices above are in US dollars. Canadian customers see the Canadian price at checkout. Payment is handled by Stripe. StudBud never sees your card number. You buy a pass from inside the extension.</p>
   </section>
 
+  <section id="parents">
+    <h2>For parents</h2>
+    <ul>
+      <li>StudBud organizes an assignment and explains what each question is asking. It does not write the answers for your student.</li>
+      <li>It costs nothing to try: 3 free breakdowns. After that, passes start at $2.99. They are one-time payments with no automatic renewal, and refunds are available within 7 days.</li>
+      <li>Your student buys a pass from inside the extension. Stripe handles the payment, and StudBud never sees card numbers.</li>
+      <li>No account is needed to use StudBud. The assignment text a student submits is sent to our server and to OpenAI to generate the steps. We do not sell data or use it for advertising. Read the <a href="privacy.html">privacy policy</a>.</li>
+      <li>StudBud is built for university and college students. A student who has not reached the age of majority where they live needs a parent or guardian's permission to buy a pass.</li>
+    </ul>
+  </section>
+
+  <section id="start">
+    <h2>Ready to try it?</h2>
+    <p>Add StudBud, upload one assignment and see the steps.</p>
+    <a class="cta" href="https://chromewebstore.google.com/detail/studbud/pbgchfnkgiapbpafepmbmgmdmmknifac">Add to Chrome</a>
+  </section>
+
   <section id="refunds">
     <h2>Refund policy</h2>
     <p>You can get a full refund within 7 days of purchase. Email <a href="mailto:studbud.team@gmail.com">studbud.team@gmail.com</a> from the address you used at checkout and tell us which pass you bought. We reply within about 2 business days. A refund ends your access to that pass.</p>
@@ -112,5 +168,14 @@
   </footer>
 
 </main>
+<script>
+  document.querySelectorAll('.video video').forEach(function (v) {
+    var show = function () { v.parentNode.classList.add('ready'); };
+    if (v.readyState >= 1) show(); else v.addEventListener('loadedmetadata', show);
+  });
+  var m = document.getElementById('email-link');
+  if (m) m.href = 'mailto:?subject=' + encodeURIComponent('Install StudBud on your computer') +
+    '&body=' + encodeURIComponent('Open this page on your computer to install StudBud: ' + location.href.split('#')[0]);
+</script>
 </body>
 </html>
