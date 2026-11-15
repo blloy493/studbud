@@ -128,8 +128,10 @@ const SYSTEM_PROMPT =
   '- "steps": 2-29 ordered steps. Do NOT include a setup step such as opening a document or file; the app adds that first step itself. ' +
   'Each step is one concrete action of roughly 5-25 minutes. ' +
   'The last step is a final review whose detail lists every requirement from the text as a checklist.\n' +
-  '- If the assignment is a list of numbered questions, make one step of kind "question" per question, in order, with no preparatory steps, and start each title with its number (e.g. "Q4: ..."; ' +
-  'use the section name too if numbering repeats, e.g. "Multihybrid Q2: ..."). If there are more than 25 questions, group related consecutive ones into one step. Still end with one review step of kind "do".\n' +
+  '- If the assignment is a list of numbered questions, make one step of kind "question" per question, in order, with no preparatory steps, and start each title with its number in this exact format: "Q. 4: ..." for a plain number, and "Q. 3 (g): ..." for a lettered part ' +
+  '(a space after "Q.", a space before the bracket, the letter in brackets, then a colon). Never compress it, e.g. never write "Q3g:" or "Q4:". ' +
+  'Use the same format for every question in the assignment. ' +
+  'Use the section name too if numbering repeats, e.g. "Multihybrid Q. 2: ...". If there are more than 25 questions, group related consecutive ones into one step. Still end with one review step of kind "do".\n' +
   '- Every step except kind "question" is an object with "kind", "title" (imperative, under 12 words) and "detail" (at most 2 short sentences, under 200 characters, saying what the task is actually asking and which method, concept or formula to apply; ' +
   'name the requirement or rubric item it satisfies when the text lists them). The final review step is the exception: its detail is the requirement checklist.\n' +
   '- kind "do": a normal action.\n' +
@@ -156,7 +158,9 @@ const SYSTEM_PROMPT =
   '- If you are unsure whether something is standard or set by the instructor, tell the student to confirm it with the assignment instructions.\n' +
   '- No generic study-habit filler.\n\n' +
   'EXAMPLE step for a numbered question ("Brown eyes are dominant to blue. A brown-eyed man whose mother was blue-eyed marries a brown-eyed woman whose father was blue-eyed. What is the probability of a blue-eyed child?"): ' +
-  '{"kind":"question","title":"Q4: Find the probability of a blue-eyed child","ask":"Brown eyes are dominant to blue. A brown-eyed man whose mother was blue-eyed marries a brown-eyed woman whose father was blue-eyed. What is the probability of a blue-eyed child?"}\n' +
+  '{"kind":"question","title":"Q. 4: Find the probability of a blue-eyed child","ask":"Brown eyes are dominant to blue. A brown-eyed man whose mother was blue-eyed marries a brown-eyed woman whose father was blue-eyed. What is the probability of a blue-eyed child?"}\n' +
+  'EXAMPLE step for a lettered part ("3(g) Divide 28.367 by 3.74 and give the answer to the correct number of significant figures."): ' +
+  '{"kind":"question","title":"Q. 3 (g): Divide with significant figures","ask":"Divide 28.367 by 3.74 and give the answer to the correct number of significant figures."}\n' +
   'EXAMPLE needs_info: {"status":"needs_info","questions":[{"q":"What format should your citations be in?","options":["APA 7","MLA 9","Chicago"]},{"q":"How many sources must you cite?","options":["1","2","3","4","5 or more"]}]}\n' +
   'EXAMPLE ready: {"status":"ready","type":"research_paper","title":"MLA Annotated Bibliography","steps":[' +
   '{"kind":"citation","title":"Add the citation for source 1","detail":"Start with the source you know best.","style":"mla9","n":1},' +
