@@ -9,15 +9,15 @@
 // Errors:   { error, code: 'too_large'|'unreadable'|'too_long'|'error' }
 // The client appends figuresBlock to the (possibly edited) text to form the `brief` sent to api/breakdown.js.
 
-import { guard, withinUserCap } from './_lib/guard.js';
-import { checkAllowance } from './_lib/entitlement.js';
+import { guardRequest, guardCaps, withinUserCap, refundUserCap } from './_lib/guard.js';
+import { checkAllowance, hasPaidAccess } from './_lib/entitlement.js';
 
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // base64 adds ~33%: ~4 MB on the wire, under Vercel's ~4.5 MB body limit
 const MAX_TEXT = 8000;                  // must match the intake textarea cap (MAX_BRIEF_CHARS in content.js)
 const MAX_FIGURES = 20;
 const MAX_FIGURES_BLOCK = 3000;
 const MIN_USABLE = 40;                  // same as MIN_BRIEF in breakdown.js
-const DAILY_USER_CAP = 10;              // reads per userId per UTC day. A guess: tune from usage data.
+const DAILY_USER_CAP = 15;              // reads per userId per UTC day. Abuse backstop. A guess: tune from usage data.
 const READ_EFFORT = 'none';             // test 'low' if figure descriptions are weak
 const TIMEOUT_MS = 50000;               // keep below the function's maxDuration (see vercel.json)
 
@@ -153,13 +153,18 @@ async function readDocument(mime, b64) {
 }
 
 export default async function handler(req, res) {
-  if (!(await guard(req, res, { name: 'readdoc', ipDailyCap: 300, globalDailyCap: 600 }))) return; // guesses: tune from usage data
+  const guardOpts = { name: 'readdoc', ipDailyCap: 1000, globalDailyCap: 3000 }; // commercial launch sizing (assumes ~500 daily users): tune from usage data and OpenAI budget
+  if (!(await guardRequest(req, res, guardOpts.name))) return;
 
   const body = req.body || {};
   const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(userId)) {
     return res.status(400).json({ error: 'Update StudBud to the latest version and try again.', code: 'error' });
   }
+
+  // Per-network and global caps protect against abuse and cost, so they apply to everyone except active pass holders: a paying
+  // student must never be blocked by a shared school network or a busy day. The per-user cap still applies to everyone.
+  if (!(await hasPaidAccess(userId)) && !(await guardCaps(req, res, guardOpts))) return;
 
   const mime = typeof body.mime === 'string' ? body.mime : '';
   const b64 = typeof body.data === 'string' ? body.data : '';
@@ -214,6 +219,7 @@ export default async function handler(req, res) {
     }
     return res.status(200).json({ status: 'ready', text, figures, figuresBlock, truncated });
   } catch (err) {
+    if (!err || !err.status || err.status >= 500) await refundUserCap('readdoc', userId); // our or upstream failure: not the student's use
     if (err && err.status) return res.status(err.status).json({ error: err.message, code: err.code || 'error' });
     console.error('readdoc endpoint error:', err);
     return res.status(500).json({ error: 'Internal server error', code: 'error' });

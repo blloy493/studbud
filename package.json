@@ -16,6 +16,6 @@
     "stripe": "^23.1.0"
   },
   "devDependencies": {
-    "dotenv": "^18.0.8"
+    "dotenv": "^18.0.10"
   }
 }

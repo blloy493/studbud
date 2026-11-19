@@ -13,11 +13,11 @@
 // The server enforces the level (the client says which one); the model never chooses how far to go.
 
 import { Redis } from '@upstash/redis';
-import { guard } from './_lib/guard.js';
-import { checkAllowance, recordUse } from './_lib/entitlement.js';
+import { guardRequest, guardCaps } from './_lib/guard.js';
+import { checkAllowance, recordUse, hasPaidAccess } from './_lib/entitlement.js';
 
 const MAX_BRIEF = 8000;      // accepted size (matches breakdown.js)
-const DAILY_CAP = 15;        // help requests per userId per UTC day (up to 3 per step). A guess: tune from beta data.
+const DAILY_CAP = 60;        // help requests per userId per UTC day (up to 3 per step, so ~20 steps). Abuse backstop, sized so a paying student does not hit it. A guess: tune from usage data.
 const BRIEF_TO_MODEL = 4000; // what is actually sent, to cap cost
 const MAX_FIELD = 300;       // title / detail
 const MAX_ASK = 500;         // full question text for worksheet steps
@@ -65,6 +65,16 @@ async function withinDailyCap(redis, userId) {
   } catch (err) {
     console.error('Stuck daily cap check failed:', err);
     return true;
+  }
+}
+
+// Gives back one use of today's cap when the request failed on our side or upstream (not the student's fault). Never throws.
+async function refundDaily(redis, userId) {
+  if (!redis) return;
+  try {
+    await redis.decr(`stuck:daily:${userId}:${new Date().toISOString().slice(0, 10)}`);
+  } catch (err) {
+    console.error('Stuck cap refund failed:', err);
   }
 }
 
@@ -135,7 +145,8 @@ function sanitizeOutput(level, parsed) {
 }
 
 export default async function handler(req, res) {
-  if (!(await guard(req, res, { name: 'stuck', ipDailyCap: 600, globalDailyCap: 1500 }))) return;
+  const guardOpts = { name: 'stuck', ipDailyCap: 3000, globalDailyCap: 10000 }; // commercial launch sizing (assumes ~500 daily users): tune from usage data and OpenAI budget
+  if (!(await guardRequest(req, res, guardOpts.name))) return;
 
   const body = req.body || {};
 
@@ -143,6 +154,10 @@ export default async function handler(req, res) {
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(userId)) {
     return res.status(400).json({ error: 'Invalid user id' });
   }
+
+  // Per-network and global caps protect against abuse and cost, so they apply to everyone except active pass holders: a paying
+  // student must never be blocked by a shared school network or a busy day. The per-user cap still applies to everyone.
+  if (!(await hasPaidAccess(userId)) && !(await guardCaps(req, res, guardOpts))) return;
 
   const level = parseLevel(body.level);
   if (!level) return res.status(400).json({ error: 'Invalid help level' });
@@ -233,6 +248,7 @@ export default async function handler(req, res) {
 
     if (!openaiRes.ok) {
       console.error('OpenAI API error:', openaiRes.status, await openaiRes.text());
+      await refundDaily(redis, userId);
       return res.status(502).json({ error: 'Upstream model request failed' });
     }
 
@@ -244,17 +260,22 @@ export default async function handler(req, res) {
       parsed = JSON.parse(raw);
     } catch {
       console.error('Failed to parse model output as JSON:', raw);
+      await refundDaily(redis, userId);
       return res.status(502).json({ error: 'Model returned unparsable output' });
     }
 
     const out = sanitizeOutput(level, parsed);
-    if (!out) return res.status(502).json({ error: 'Model returned no usable help' });
+    if (!out) {
+      await refundDaily(redis, userId);
+      return res.status(502).json({ error: 'Model returned no usable help' });
+    }
 
     if (level === 1) await recordUse(userId, 'stuck', allowance && allowance.status);
     await bump(redis, `stuck:count:level${level}:${stuckKind || 'none'}`);
     return res.status(200).json({ status: 'ok', level, ...out });
   } catch (err) {
     console.error('Stuck endpoint error:', err);
+    await refundDaily(redis, userId);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

@@ -6,7 +6,7 @@
 <title>StudBud: finish your assignment one clear step at a time</title>
 <meta name="description" content="StudBud is a Chrome extension that breaks an assignment into small steps and walks you through them until it's done. Try 3 assignments free.">
 <meta property="og:type" content="website">
-<meta property="og:title" content="StudBud: finish your assignment one clear step at a time">
+<meta property="og:title" content="StudBud: finish your assignment, one clear step at a time">
 <meta property="og:description" content="A Chrome extension that breaks your assignment into small steps and walks you through them until it's done.">
 <style>
   :root { --maroon: #590016; --stone: #e7e5e4; --paper: #faf9f8; --gold: #D8B45B; --ink: #2a2224; --muted: #6b5e61; }
@@ -15,12 +15,19 @@
   body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
   header { background: var(--maroon); color: var(--stone); padding: 36px 0 44px; }
-  header .brand { margin: 0 0 28px; font: 700 20px/1 Georgia, "Times New Roman", serif; }
+  header .brand { margin: 0 0 28px; font: 700 30px/1 Georgia, "Times New Roman", serif; text-align: left;}
   header h1 { margin: 0 0 14px; font: 700 clamp(32px, 6.5vw, 48px)/1.1 Georgia, "Times New Roman", serif; }
   header p { margin: 0; max-width: 34em; font-size: 19px; }
+  .hero { display: flex; gap: 28px; align-items: center; }
+  .hero-avatar { flex: 0 0 auto; width: 160px; height: auto; display: block;}
+  .hero-text { flex: 1; min-width: 0; }
+  .hero-text .brand { margin: 0 0 36px; }
+  @media (min-width: 1120px) {
+  .hero { display: block; position: relative; }
+  .hero-avatar { position: absolute; right: calc(100% + 100px); top: 50%; transform: translateY(-50%); }}
   header .small { margin-top: 14px; font-size: 15px; }
   header .small a { color: var(--stone); }
-  .cta { display: inline-block; margin-top: 24px; padding: 12px 22px; background: var(--gold); color: var(--maroon); font-weight: 700; text-decoration: none; border-radius: 8px; }
+  .cta { display: inline-block; margin-top: 24px; padding: 12px 22px; background: var(--gold); color: var(--ink); font-weight: 700; text-decoration: none; border-radius: 8px; }
   .cta:hover { background: #e3c378; }
   .cta:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid var(--maroon); outline-offset: 3px; }
   header .cta:focus-visible, header a:focus-visible { outline-color: var(--stone); }
@@ -44,6 +51,12 @@
   .pass .price { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
   .pass p { margin: 0; color: var(--muted); font-size: 15px; }
   .note { color: var(--muted); font-size: 15px; }
+  .about { display: flex; gap: 24px; align-items: flex-start; }
+  .about-text { flex: 1; min-width: 0; }
+  .headshot { flex: 0 0 140px; width: 140px; height: 140px; border-radius: 8px; border: 2px dashed var(--muted); background: var(--stone); color: var(--muted); display: grid; place-items: center; text-align: center; font-size: 14px; line-height: 1.3; overflow: hidden; }
+  .about > img { flex: 0 0 140px; width: 140px; height: 140px; object-fit: cover; display: block; }
+  .headshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  @media (max-width: 520px) { .about { flex-direction: column; } }
   footer { margin-top: 48px; padding: 28px 0 40px; border-top: 1px solid var(--stone); color: var(--muted); font-size: 15px; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -52,11 +65,16 @@
 
 <header>
   <div class="wrap">
-    <p class="brand">StudBud</p>
-    <h1>Finish your assignment one clear step at a time.</h1>
-    <p>StudBud is a Chrome extension for high school, college and university students. Upload your assignment and it breaks the work into small steps, with a short note on how to approach each one. It organizes the work. You do the work.</p>
-    <a class="cta" href="https://chromewebstore.google.com/detail/studbud/pbgchfnkgiapbpafepmbmgmdmmknifac" id="store-link">Add to Chrome</a>
-    <p class="small">Free to try: 3 assignment breakdowns, no account needed. Parent? <a href="#parents">See what it does and costs.</a></p>
+    <div class="hero">
+      <img class="hero-avatar" src="media/active_evol_3.png" alt="The StudBud avatar" width="160">
+      <div class="hero-text">
+        <p class="brand">StudBud</p>
+        <h1>Finish your assignment, one clear step at a time</h1>
+        <p>Big assignment and no idea where to begin? Upload it to StudBud and watch it turn into small steps with a quick note on how to tackle each one. StudBud is a Chrome extension designed for high school, college and university students. You still do the work. StudBud just shows you where to start and guides you, all the way to the end.</p>
+        <a class="cta" href="https://chromewebstore.google.com/detail/studbud/pbgchfnkgiapbpafepmbmgmdmmknifac" id="store-link">Add to Chrome</a>
+        <p class="small">Free to try: 3 assignment breakdowns, no account needed.<br>Parent? <a href="#parents">See how it can help, and what it costs.</a></p>
+      </div>
+    </div>
   </div>
 </header>
 
@@ -89,6 +107,16 @@
       <li><strong>Optional focus timer.</strong> A 25-minute timer for each step, and an avatar that levels up as you finish steps.</li>
     </ul>
     <p class="note">StudBud can miss parts of complicated PDFs, such as tables, graphs and long structured prompts. Skim the steps against your assignment sheet before you start.</p>
+  </section>
+
+  <section id="what">
+    <h2>What is a Chrome extension?</h2>
+    <p>A Chrome extension is a small add-on for the Chrome web browser, the way an app adds features to a phone. It isn't a separate program. You install it from the Chrome Web Store in a few clicks, and it adds a feature to the browser. StudBud adds a step-by-step helper next to the page your student is already working on.</p>
+    <ul>
+      <li><strong>It's easy to remove.</strong> Right-click the StudBud icon in the Chrome toolbar and choose "Remove from Chrome."</li>
+      <li><strong>It only works in Chrome on a computer.</strong> It does nothing on phones and tablets.</li>
+      <li><strong>School-managed computers may block it.</strong> Some schools stop students from adding extensions. If the install button is missing or greyed out, that is the likely reason. Your student can use a personal computer instead.</li>
+    </ul>
   </section>
 
   <section id="install">
@@ -129,10 +157,11 @@
       <div class="pass">
         <h3>Weekly pass</h3>
         <p class="price">$2.99</p>
-        <p>Seven days, for a deadline crunch</p>
+        <p>Seven days of full access, for a deadline crunch</p>
       </div>
     </div>
     <p class="note">Prices above are in US dollars. Canadian customers see the Canadian price at checkout. Payment is handled by Stripe. StudBud never sees your card number. You buy a pass from inside the extension.</p>
+    <p class="note"><strong>Fair use.</strong> To keep StudBud running for everyone, it sets generous daily limits per user. Normal study use should stay well within them. If you reach a limit, try again the next day or email us.</p>
   </section>
 
   <section id="parents">
@@ -144,6 +173,19 @@
       <li>No account is needed to use StudBud. The assignment text a student submits is sent to our server and to OpenAI to generate the steps. We do not sell data or use it for advertising. Read the <a href="privacy.html">privacy policy</a>.</li>
       <li>StudBud is built for high school, college and university students. A student who has not reached the age of majority where they live needs a parent or guardian's permission to buy a pass.</li>
     </ul>
+  </section>
+
+  <section id="about">
+    <h2>About the creator</h2>
+    <div class="about">
+      <!-- HEADSHOT: .-->
+      <img src="media/IMG_2153.jpg" alt="Brody Lloy, creator of StudBud" width="140" height="140">     
+      
+      <div class="about-text">
+        <p>Hello! I'm Brody Lloy, a qualified high school teacher in Ontario (HBSc., B.Ed, OCT). Time and time again, I have seen students freeze when I give them an assignment. I often get comments like “I don’t know where to start” or “I don’t know what part to focus on”. That’s why I built StudBud to help students get past the hardest part of any assignment: getting started. They still do the work and the answers are never directly given, but they get a structured straightforward plan to help them get it done.</p>
+        <p>Questions or suggestions? Email me at <a href="mailto:studbud.team@gmail.com">studbud.team@gmail.com</a>.</p>
+      </div>
+    </div>
   </section>
 
   <section id="start">
@@ -163,7 +205,7 @@
   </section>
 
   <footer>
-    <p>StudBud is operated by Brody Lloy, based in Canada.</p>
+    <p>StudBud is owned and operated by Brody Lloy, HBSc., B.Ed, OCT, based in Canada.</p>
     <p><a href="privacy.html" id="privacy-link">Privacy policy</a></p>
   </footer>
 

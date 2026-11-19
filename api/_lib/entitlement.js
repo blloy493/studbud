@@ -75,6 +75,17 @@ export async function paidUntil(userId) {
   return Number(exp || 0);
 }
 
+// True while a pass is active. Used by endpoints to skip the per-IP and global caps for paying students. Never throws: if Redis
+// is down it returns false, so the caller falls back to the normal caps (which also fail open).
+export async function hasPaidAccess(userId) {
+  try {
+    return (await paidUntil(userId)) > Date.now();
+  } catch (err) {
+    console.error('[entitlement] hasPaidAccess failed:', err);
+    return false;
+  }
+}
+
 export async function customerFor(userId) {
   return (await redisOrThrow().hget(paidKey(userId), 'cust')) || null;
 }

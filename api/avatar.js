@@ -20,14 +20,14 @@
 //   3. Persona rules in the prompt (roast the behavior, never the student).
 
 import { Redis } from '@upstash/redis';
-import { guard } from './_lib/guard.js';
-import { checkAllowance, recordUse } from './_lib/entitlement.js';
+import { guardRequest, guardCaps } from './_lib/guard.js';
+import { checkAllowance, recordUse, hasPaidAccess } from './_lib/entitlement.js';
 
 const MAX_MESSAGE = 500;
 const MAX_HISTORY = 6;
 const MAX_HISTORY_TEXT = 500;
 const MAX_REPLY = 600;
-const DAILY_CAP = 20; // messages per userId per UTC day. A guess: tune from beta data.
+const DAILY_CAP = 100; // messages per userId per UTC day. Abuse backstop, sized so a paying student does not hit it. A guess: tune from usage data.
 
 const CATEGORIES = ['step_help', 'check_in', 'answer_request', 'stuck_frustrated', 'banter', 'distress', 'other'];
 
@@ -130,6 +130,16 @@ function getRedis() {
   return new Redis({ url, token });
 }
 
+// Gives back one use of today's cap when the request failed on our side or upstream (not the student's fault). Never throws.
+async function refundDaily(redis, userId) {
+  if (!redis) return;
+  try {
+    await redis.decr(`avatar:daily:${userId}:${new Date().toISOString().slice(0, 10)}`);
+  } catch (err) {
+    console.error('Daily cap refund failed:', err);
+  }
+}
+
 // Returns true if the user is within today's cap. Fails open (logs) if Redis is unavailable.
 async function withinDailyCap(redis, userId) {
   if (!redis) return true;
@@ -182,7 +192,8 @@ async function moderate(message) {
 }
 
 export default async function handler(req, res) {
-  if (!(await guard(req, res, { name: 'avatar', ipDailyCap: 1000, globalDailyCap: 2000 }))) return;
+  const guardOpts = { name: 'avatar', ipDailyCap: 5000, globalDailyCap: 20000 }; // commercial launch sizing (assumes ~500 daily users): tune from usage data and OpenAI budget
+  if (!(await guardRequest(req, res, guardOpts.name))) return;
 
   const body = req.body || {};
 
@@ -195,6 +206,10 @@ export default async function handler(req, res) {
   if (!message) {
     return res.status(400).json({ error: 'Empty message' });
   }
+
+  // Per-network and global caps protect against abuse and cost, so they apply to everyone except active pass holders: a paying
+  // student must never be blocked by a shared school network or a busy day. The per-user cap still applies to everyone.
+  if (!(await hasPaidAccess(userId)) && !(await guardCaps(req, res, guardOpts))) return;
 
   const rawCtx = body.context && typeof body.context === 'object' ? body.context : {};
   const ctx = {
@@ -265,6 +280,7 @@ export default async function handler(req, res) {
     if (!openaiRes.ok) {
       const errText = await openaiRes.text();
       console.error('OpenAI API error:', openaiRes.status, errText);
+      await refundDaily(redis, userId);
       return res.status(502).json({ error: 'Upstream model request failed' });
     }
 
@@ -311,6 +327,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ category, reply });
   } catch (err) {
     console.error('Avatar endpoint error:', err);
+    await refundDaily(redis, userId);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

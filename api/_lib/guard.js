@@ -56,8 +56,12 @@ async function bumpDaily(r, key) {
   return Number(out[0]);
 }
 
-// Returns true if the handler should continue. Otherwise the response has already been sent.
-export async function guard(req, res, { name, ipDailyCap, globalDailyCap }) {
+// guard() is two steps so an endpoint can skip the second for paying students:
+//   guardRequest: CORS, method and origin checks. No counters, so it can run before the handler knows who the caller is.
+//   guardCaps:    per-IP and global daily caps. Endpoints with a paid tier call it only when hasPaidAccess(userId) is false
+//                 (entitlement.js), so a shared school network or a busy day never blocks someone who paid. Per-user caps still apply.
+// Both return true if the handler should continue. Otherwise the response has already been sent.
+export async function guardRequest(req, res, name) {
   const origin = req.headers.origin;
   const restrict = ALLOWED_ORIGINS.length > 0;
 
@@ -81,7 +85,10 @@ export async function guard(req, res, { name, ipDailyCap, globalDailyCap }) {
     res.status(403).json({ error: 'Forbidden' });
     return false;
   }
+  return true;
+}
 
+export async function guardCaps(req, res, { name, ipDailyCap, globalDailyCap }) {
   const r = getRedis();
   if (!r) return true;
 
@@ -103,6 +110,22 @@ export async function guard(req, res, { name, ipDailyCap, globalDailyCap }) {
     console.error(`[guard:${name}] counter check failed:`, err);
   }
   return true;
+}
+
+// Both steps, for endpoints with no paid tier.
+export async function guard(req, res, opts) {
+  return (await guardRequest(req, res, opts.name)) && (await guardCaps(req, res, opts));
+}
+
+// Gives back one use of a per-user cap when the request failed on our side or upstream (not the student's fault). Never throws.
+export async function refundUserCap(name, userId) {
+  const r = getRedis();
+  if (!r) return;
+  try {
+    await r.decr(`guard:user:${name}:${userId}:${today()}`);
+  } catch (err) {
+    console.error(`[guard:${name}] user cap refund failed:`, err);
+  }
 }
 
 // Per-user daily cap for endpoints that do not already have one. Fails open. Returns true if within the cap.
