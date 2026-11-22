@@ -229,9 +229,9 @@ async function callModel(system, userContent, maxTokens) {
     // The OpenAI-side spend limit is the last backstop. "tomorrow" is deliberate: content.js shows server messages containing it as written.
     // The error-code pattern is a guess: verify against what the account actually returns.
     if (/insufficient_quota|billing|hard_limit/i.test(errText)) {
-      throw httpError(503, 'StudBud is paused for now. Try again tomorrow.');
+      throw httpError(503, 'StepSpark is paused for now. Try again tomorrow.');
     }
-    if (openaiRes.status === 429) throw httpError(503, 'StudBud is busy. Try again in a minute.');
+    if (openaiRes.status === 429) throw httpError(503, 'StepSpark is busy. Try again in a minute.');
     throw httpError(502, 'Upstream model request failed');
   }
 
@@ -338,7 +338,7 @@ export default async function handler(req, res) {
 
   const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(userId)) {
-    return res.status(400).json({ error: 'Update StudBud to the latest version and try again.' });
+    return res.status(400).json({ error: 'Update StepSpark to the latest version and try again.' });
   }
 
   // Per-network and global caps protect against abuse and cost, so they apply to everyone except active pass holders: a paying

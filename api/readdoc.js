@@ -159,7 +159,7 @@ export default async function handler(req, res) {
   const body = req.body || {};
   const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(userId)) {
-    return res.status(400).json({ error: 'Update StudBud to the latest version and try again.', code: 'error' });
+    return res.status(400).json({ error: 'Update StepSpark to the latest version and try again.', code: 'error' });
   }
 
   // Per-network and global caps protect against abuse and cost, so they apply to everyone except active pass holders: a paying
