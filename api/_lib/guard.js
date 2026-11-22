@@ -103,7 +103,7 @@ export async function guardCaps(req, res, { name, ipDailyCap, globalDailyCap }) 
     const globalCount = await bumpDaily(r, `guard:global:${name}:${day}`);
     if (globalCount > globalDailyCap) {
       console.error(`[guard:${name}] global daily cap reached (${globalDailyCap})`);
-      res.status(503).json({ error: 'StudBud is busy today. Try again tomorrow.', limit: true });
+      res.status(503).json({ error: 'StepSpark is busy today. Try again tomorrow.', limit: true });
       return false;
     }
   } catch (err) {
