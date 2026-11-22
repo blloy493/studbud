@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
   const { userId, plan, currency: shownCurrency } = req.body || {};
   if (typeof userId !== 'string' || !USER_ID_RE.test(userId)) {
-    return res.status(400).json({ error: 'Update StudBud to the latest version and try again.' });
+    return res.status(400).json({ error: 'Update StepSpark to the latest version and try again.' });
   }
   const cfg = typeof plan === 'string' ? PLANS[plan] : undefined;
   if (!cfg) return res.status(400).json({ error: 'Unknown plan' });
