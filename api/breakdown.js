@@ -34,8 +34,14 @@ const MAX_ROUND = 2; // max clarification rounds before the model must produce a
 const MAX_STEPS = 30; // total, including the hardcoded first step
 const MAX_ASK = 500; // length cap for a question's text ('ask')
 const MAX_EXPAND_STEPS = 6; // micro-steps per expanded question
+// Free-tier caps (a free install is also limited to 3 lifetime plans, see entitlement.js).
 const DAILY_USER_CAP = 20;   // plan calls (incl. clarification rounds) per userId per UTC day. A guess: tune from usage data.
 const DAILY_EXPAND_CAP = 60; // worksheet 'expand' calls per userId per UTC day: one per question, and worksheets can have 25 questions
+// StepSpark Pro caps. 30 plan calls = at least 10 new assignments a day even if every one uses all 3 clarification rounds.
+// 150 expand calls = six full 25-question worksheets.
+// PUBLISHED on the landing page and privacy.html (fair use note). If you change these numbers, change the note too. (10 new assignments, 150 worksheet questions).
+const PRO_DAILY_USER_CAP = 30;
+const PRO_DAILY_EXPAND_CAP = 150;
 
 const VALID_TYPES = [
   'problem_set',
@@ -343,7 +349,8 @@ export default async function handler(req, res) {
 
   // Per-network and global caps protect against abuse and cost, so they apply to everyone except active pass holders: a paying
   // student must never be blocked by a shared school network or a busy day. The per-user cap below still applies to everyone.
-  if (!(await hasPaidAccess(userId)) && !(await guardCaps(req, res, guardOpts))) return;
+  const paid = await hasPaidAccess(userId); // also picks the per-user cap below. False if Redis is down, so Pro briefly gets the free caps.
+  if (!paid && !(await guardCaps(req, res, guardOpts))) return;
 
   const brief = typeof body.brief === 'string' ? body.brief.trim() : '';
 
@@ -358,8 +365,9 @@ export default async function handler(req, res) {
   // Per-user cap runs after validation so malformed requests don't use up a student's daily calls,
   // and before the expand branch (which returns early) so expand calls are capped too.
   const capName = guardOpts.name; // 'breakdown' or 'breakdown_expand'
-  if (!(await withinUserCap(capName, userId, isExpand ? DAILY_EXPAND_CAP : DAILY_USER_CAP))) {
-    return res.status(429).json({ error: 'Daily limit reached. Come back tomorrow.', limit: true });
+  const userCap = isExpand ? (paid ? PRO_DAILY_EXPAND_CAP : DAILY_EXPAND_CAP) : (paid ? PRO_DAILY_USER_CAP : DAILY_USER_CAP);
+  if (!(await withinUserCap(capName, userId, userCap))) {
+    return res.status(429).json({ error: "You've reached today's fair-use limit. It resets daily.", limit: true });
   }
 
   if (isExpand) {

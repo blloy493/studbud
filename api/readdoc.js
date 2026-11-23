@@ -18,6 +18,7 @@ const MAX_FIGURES = 20;
 const MAX_FIGURES_BLOCK = 3000;
 const MIN_USABLE = 40;                  // same as MIN_BRIEF in breakdown.js
 const DAILY_USER_CAP = 15;              // reads per userId per UTC day. Abuse backstop. A guess: tune from usage data.
+// PUBLISHED on the landing page and privacy.html (fair use note). If you change this number, change the note too. (15 file uploads).
 const READ_EFFORT = 'none';             // test 'low' if figure descriptions are weak
 const TIMEOUT_MS = 50000;               // keep below the function's maxDuration (see vercel.json)
 
@@ -187,12 +188,12 @@ export default async function handler(req, res) {
   // api/breakdown.js returns it. Paid and trial installs pass; fails open if Redis is down.
   const allowance = await checkAllowance(userId, 'plan');
   if (!allowance.allowed) {
-    return res.status(429).json({ error: "You've used this month's free breakdowns. A pass removes the limit.", limit: true, allowance: true, code: 'error' });
+    return res.status(429).json({ error: "You've used your free breakdowns. StepSpark Pro gives full access for the length of your pass.", limit: true, allowance: true, code: 'error' });
   }
 
   // Per-user cap runs after validation so malformed requests do not use up a student's daily reads.
   if (!(await withinUserCap('readdoc', userId, DAILY_USER_CAP))) {
-    return res.status(429).json({ error: 'Daily upload limit reached. Paste the text instead, or come back tomorrow.', limit: true, code: 'error' });
+    return res.status(429).json({ error: "You've reached today's upload limit. Paste the text instead. The limit resets daily.", limit: true, code: 'error' });
   }
 
   try {

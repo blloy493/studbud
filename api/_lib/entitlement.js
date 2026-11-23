@@ -1,7 +1,9 @@
 // api/_lib/entitlement.js
 // Access tiers for an install (the anonymous userId breakdown.js already uses):
-//   paid  -> unlimited while paid:<userId>.exp is in the future (passes and the legacy monthly subscription)
-//   trial -> unlimited for TRIAL_DAYS, starting at the FIRST SUCCESSFUL INTAKE (see recordUse). OFF by default (TRIAL_DAYS=0).
+//   paid  -> StepSpark Pro: full access while paid:<userId>.exp is in the future (passes and the legacy monthly subscription).
+//            Access is time-based, not metered. Per-user daily fair-use caps still apply in each endpoint (breakdown, readdoc, stuck,
+//            avatar) and are published on the landing page and privacy.html.
+//   trial -> full access for TRIAL_DAYS, starting at the FIRST SUCCESSFUL INTAKE (see recordUse). OFF by default (TRIAL_DAYS=0).
 //   free  -> an allowance (plan / stuck / chat). PAYWALL TEST: FREE_WINDOW=lifetime (default) means the allowance never resets:
 //            3 successful plans, then a hard wall. FREE_WINDOW=month brings back the trickle (resets on the 1st of each UTC month).
 // To go from the paywall test to the trickle with no code change: set FREE_WINDOW=month, ALLOW_STUCK=3, ALLOW_CHAT=5 and redeploy.

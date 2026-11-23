@@ -18,6 +18,7 @@ import { checkAllowance, recordUse, hasPaidAccess } from './_lib/entitlement.js'
 
 const MAX_BRIEF = 8000;      // accepted size (matches breakdown.js)
 const DAILY_CAP = 60;        // help requests per userId per UTC day (up to 3 per step, so ~20 steps). Abuse backstop, sized so a paying student does not hit it. A guess: tune from usage data.
+// PUBLISHED on the landing page and privacy.html (fair use note). If you change this number, change the note too. (60 help requests).
 const BRIEF_TO_MODEL = 4000; // what is actually sent, to cap cost
 const MAX_FIELD = 300;       // title / detail
 const MAX_ASK = 500;         // full question text for worksheet steps
@@ -200,7 +201,7 @@ export default async function handler(req, res) {
     if (!allowance.allowed) {
       const s = allowance.status;
       return res.status(429).json({
-        error: "You've used this month's free help requests.",
+        error: "You've used your free help requests.",
         limit: true,
         allowance: true,
         tier: s.tier,
@@ -212,7 +213,7 @@ export default async function handler(req, res) {
   }
 
   if (!(await withinDailyCap(redis, userId))) {
-    return res.status(429).json({ error: 'Daily help limit reached. Come back tomorrow.', limit: true });
+    return res.status(429).json({ error: "You've reached today's help limit. It resets daily.", limit: true });
   }
 
   let userContent =
