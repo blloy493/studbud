@@ -61,6 +61,10 @@ const BILLING_EVENTS = [
   'checkout_completed',
 ];
 
+// Share plan (1.1.0): the student copied the plan checklist to the clipboard, from the header menu (menu) or from the
+// finished screen (done). Counts only: the shared text is never sent here.
+const SHARE_EVENTS = ['share_copied_menu', 'share_copied_done'];
+
 const EVENTS = new Set([
   'plan_created', 'steps_added', 'step_completed', 'plan_completed', 'finish_yes', 'finish_no',
   'limit_hit', 'upgrade_click', 'price_3', 'price_5', 'price_8', 'price_none',
@@ -70,6 +74,7 @@ const EVENTS = new Set([
   ...ABANDON_EVENTS,
   ...UPLOAD_EVENTS,
   ...BILLING_EVENTS,
+  ...SHARE_EVENTS,
 ]);
 const ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 
