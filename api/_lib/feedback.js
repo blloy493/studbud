@@ -6,7 +6,9 @@
 //   {
 //     anonId: string,                        // anonymous per-install id
 //     trigger: 'completion' | 'limit_hit',   // current clients send 'completion'; 'limit_hit' is accepted for older installed clients
-//     reuse: 'yes' | 'no' | null,            // "Would you use StudBud on your next assignment?"
+//     alt: 'ai' | 'alone' | 'peer_web' | 'put_off' | null,        // "Without StepSpark, how would you have handled this assignment?"
+//     useful: 'start' | 'steps' | 'hints' | 'stuck' | 'progress' | 'none' | null, // "What was the most useful part?" (optional)
+//     reuse: 'yes' | 'no' | null,            // retired yes/no question; still accepted from older installed clients
 //     text: string,                          // optional free text, max 500 chars
 //     assignmentType?, stepsTotal?, stepsCompleted?, plansCompleted?, analysesUsed?, avatarMessages?, asks?
 //   }
@@ -14,6 +16,7 @@
 // Feedback is stored for its own sake. It no longer unlocks anything: the beta unlock (ent:<anonId>) was retired with the
 // paid launch, and a planId sent by an older client is ignored. Access is decided in _lib/entitlement.js.
 //
+// Each record carries anonId, so alt/useful can be joined to the same install's events (second-plan return, trial conversion).
 // Responses are stored newest-first in the Redis list `feedback:responses` (capped at MAX_LIST).
 // Read them in the Upstash data browser. If they are ever rendered on a page (e.g. a dashboard), escape the text:
 // it is free text typed by students.
@@ -27,6 +30,9 @@ const MAX_LIST = 5000;
 
 const TRIGGERS = ['completion', 'limit_hit'];
 const REUSE = ['yes', 'no'];
+// Keep in sync with FB_ALT_OPTIONS / FB_USEFUL_OPTIONS in content.js.
+const ALT = ['ai', 'alone', 'peer_web', 'put_off'];
+const USEFUL = ['start', 'steps', 'hints', 'stuck', 'progress', 'none'];
 const TYPES = ['problem_set', 'essay', 'research_paper', 'lab_report', 'reading_response', 'presentation', 'coding', 'other'];
 
 function cleanString(v, max) {
@@ -53,8 +59,10 @@ export default async function handler(req, res) {
   }
 
   const reuse = REUSE.includes(body.reuse) ? body.reuse : null;
+  const alt = ALT.includes(body.alt) ? body.alt : null;
+  const useful = USEFUL.includes(body.useful) ? body.useful : null;
   const text = cleanString(body.text, MAX_TEXT);
-  if (!reuse && !text) {
+  if (!reuse && !alt && !text) {
     return res.status(400).json({ error: 'Empty feedback' });
   }
 
@@ -81,6 +89,8 @@ export default async function handler(req, res) {
       anonId,
       trigger,
       reuse,
+      alt,
+      useful,
       text,
       assignmentType: TYPES.includes(body.assignmentType) ? body.assignmentType : null,
       stepsTotal: cleanCount(body.stepsTotal),
